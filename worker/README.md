@@ -4,21 +4,17 @@ Runs the Google rank checks and AI Mode reads for MSM Studio in a real browser o
 
 ## One-time setup on the PC
 
-1. Install Node.js 20 or newer.
-2. Copy this `worker` folder to the PC (or the whole repo).
-3. In the folder run `npm install` then `npm run setup` (downloads the browser).
-4. Create a file named `.env` in the folder:
-```
-MSM_APP_URL=http://localhost:3000
-WORKER_TOKEN=paste the same token as the app's .env.local
-```
-For the hosted app use the Vercel URL instead of localhost.
+1. Install Node.js 20 or newer (nodejs.org) and make sure Google Chrome is installed.
+2. Copy this `worker` folder to the PC (or clone the whole repo).
+3. Copy `.env.example` to `.env` and fill in the two values: the app's Vercel URL and the shared WORKER_TOKEN.
 
 ## Run it
 
-```
-npm start
-```
+Double-click **Start MSM Worker.bat**. The first run installs what it needs (about a minute). Leave the window open; close it or press Ctrl+C to stop.
+
+Or from a terminal in the folder: `npm install`, `npm run setup` once, then `npm start`.
+
+To have it start whenever the PC is switched on: press Win+R, type `shell:startup`, and put a shortcut to `Start MSM Worker.bat` in the folder that opens.
 
 A browser window opens when a job arrives and closes when it is done. Leave the terminal open while reports are being researched. The app's Settings page shows "Online on <PC name>" while it runs.
 
