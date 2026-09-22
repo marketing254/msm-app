@@ -19,6 +19,7 @@ export const ALLOWED_USERS: (Session & { team: string })[] = [
   { name: "Dulmini Dodawatte", email: "dulmini@ekwa.com", role: "Reviewer", team: "Sales" },
   { name: "Lila Stone", email: "lila@ekwa.com", role: "AE", team: "Sales" },
   { name: "Chamika", email: "chamika@ekwa.com", role: "Viewer", team: "Oversight" },
+  { name: "Fathima Rushdha", email: "rushdha@ekwa.com", role: "Admin", team: "Automation" },
 ];
 
 export const AE_LIST = ALLOWED_USERS.filter((u) => u.role === "AE" || u.role === "Reviewer").map((u) => u.name);
