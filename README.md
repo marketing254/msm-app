@@ -129,3 +129,7 @@ data/msm-template.xlsx           reference workbook layout
 
 2. Slack post of the Sheet link to the assigned AE (webhook), with AE approval recorded.
 3. Real email codes at sign-in (Gmail SMTP from an EKWA address).
+
+## Version
+
+0.2.0, 23 Sep 2026: live research through the rank worker, Google Sheet output, state saved to the MSM Database sheet, Copyscape guard. Ready for the first real-client test.
