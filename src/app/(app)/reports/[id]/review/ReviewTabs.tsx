@@ -156,7 +156,7 @@ export function ReviewTabs({ report: r }: { report: Report }) {
                         const v = l[f];
                         const onFile = f === "name" ? r.intake.company : f === "address" ? r.intake.address : r.intake.office;
                         const bad = l.match === "mismatch" && v !== onFile;
-                        return <td key={l.platform} style={{ color: bad ? "var(--red)" : l.match === "match" ? "var(--green)" : "var(--muted)" }}>{l.match === "not-listed" ? "Not listed" : l.match === "not-applicable" ? "N/A" : `${bad ? "✗" : "✓"} ${v}`}</td>;
+                        return <td key={l.platform} style={{ color: bad ? "var(--red)" : l.match === "match" ? "var(--green)" : "var(--muted)" }}>{l.match === "not-listed" ? "Not listed" : l.match === "not-applicable" ? "N/A" : l.match === "not-checked" ? "Not checked" : `${bad ? "✗" : "✓"} ${v}`}</td>;
                       })}
                     </tr>
                   ))}
@@ -250,7 +250,9 @@ export function ReviewTabs({ report: r }: { report: Report }) {
 
       {readOnly ? (
         <div className="actions">
-          <a className="btn success" href={r.delivery.sheetUrl ?? "#"} title="Opens when Google Sheets is connected">Open Google Sheet</a>
+          {r.delivery.sheetUrl && r.delivery.sheetUrl !== "#"
+            ? <a className="btn success" href={r.delivery.sheetUrl} target="_blank" rel="noreferrer">Open Google Sheet</a>
+            : <span className="btn quiet" style={{ opacity: 0.6, cursor: "default" }}>No Google Sheet</span>}
           <a className="btn quiet" href={`/api/reports/${r.id}/excel`}>Excel fallback</a>
           <Link href={`/reports/${r.id}`} className="btn quiet">Back to report</Link>
           <span className="note">Approved by {r.approvedBy}. Sent to {r.delivery.sentTo} via {r.delivery.sentVia}.</span>

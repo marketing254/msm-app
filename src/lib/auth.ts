@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { has } from "./env";
 
 export const SESSION_COOKIE = "msm_session";
 
@@ -13,25 +14,32 @@ export const ROLE_DESCRIPTION: Record<Role, string> = {
   Viewer: "Open and search all reports, read only",
 };
 
-/** Allow-list. Later this becomes the admin_users table in Supabase. */
+/** Built-in allow-list, used when the MSM Database sheet is not connected. */
 export const ALLOWED_USERS: (Session & { team: string })[] = [
   { name: "Dulmini Dodawatte", email: "dulmini@ekwa.com", role: "Reviewer", team: "Sales" },
   { name: "Lila Stone", email: "lila@ekwa.com", role: "AE", team: "Sales" },
   { name: "Chamika", email: "chamika@ekwa.com", role: "Viewer", team: "Oversight" },
-  { name: "Naren", email: "naren@ekwa.com", role: "Admin", team: "Operations" },
 ];
 
 export const AE_LIST = ALLOWED_USERS.filter((u) => u.role === "AE" || u.role === "Reviewer").map((u) => u.name);
 
-export function findUser(email: string): Session | undefined {
-  const e = email.trim().toLowerCase();
-  const known = ALLOWED_USERS.find((u) => u.email === e);
-  if (known) return { name: known.name, email: known.email, role: known.role };
-  // Demo convenience: any @ekwa.com address signs in as a viewer.
-  if (e.endsWith("@ekwa.com")) {
-    const local = e.split("@")[0];
-    return { name: local.charAt(0).toUpperCase() + local.slice(1), email: e, role: "Viewer" };
+/** Current allow-list: the Users tab of the MSM Database sheet when connected, otherwise the built-in list. */
+export async function allowedUsers(): Promise<{ users: (Session & { team: string })[]; source: "sheet" | "built-in" }> {
+  if (has.database()) {
+    try {
+      const { readUsers } = await import("./google");
+      const users = (await readUsers()).filter((u) => u.active);
+      if (users.length) return { users, source: "sheet" };
+    } catch { /* fall back */ }
   }
+  return { users: ALLOWED_USERS, source: "built-in" };
+}
+
+export async function findUser(email: string): Promise<Session | undefined> {
+  const e = email.trim().toLowerCase();
+  const { users } = await allowedUsers();
+  const known = users.find((u) => u.email === e);
+  if (known) return { name: known.name, email: known.email, role: known.role };
   return undefined;
 }
 

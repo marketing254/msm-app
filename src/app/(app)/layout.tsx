@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { signOut } from "@/app/actions";
 import { NavLinks } from "@/components/NavLinks";
+import { Alerts } from "@/components/Alerts";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
@@ -19,7 +20,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </div>
       </aside>
       <main className="main">
-        <div className="container">{children}</div>
+        <div className="container"><Alerts />{children}</div>
       </main>
     </div>
   );

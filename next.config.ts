@@ -1,8 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // The Excel fallback route reads data/msm-template.xlsx at runtime.
-  // Make sure Vercel bundles it with the serverless function.
+  // data/msm-template.xlsx is the reference layout the generator follows. Keep it with the function.
   outputFileTracingIncludes: {
     "/api/reports/[id]/excel": ["./data/**"],
   },

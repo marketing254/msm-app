@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { encodeSession, findUser, getSession, SESSION_COOKIE } from "@/lib/auth";
 import * as store from "@/lib/store";
+import { flushed } from "@/lib/persist";
 import type { Finding, Intake, NotifyChannel, Vertical } from "@/lib/types";
 
 export interface ActionState { error?: string }
@@ -13,8 +14,8 @@ export interface ActionState { error?: string }
 export async function signIn(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const email = String(formData.get("email") ?? "");
   const code = String(formData.get("code") ?? "").replace(/\s/g, "");
-  const user = findUser(email);
-  if (!user) return { error: "That email is not on the allow-list. Ask an admin to add you in Settings." };
+  const user = await findUser(email);
+  if (!user) return { error: "That email is not on the allow-list. Ask an admin to add you on the Users tab of the MSM Database sheet." };
   if (!/^\d{6}$/.test(code)) return { error: "Enter the 6-digit code from your email." };
   (await cookies()).set(SESSION_COOKIE, encodeSession(user), {
     httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 60 * 60 * 8,
@@ -46,7 +47,9 @@ export async function createReport(_prev: ActionState, formData: FormData): Prom
   const ae = get("ae") || "Lila Stone";
   const notifyRaw = get("notify");
   const notify: NotifyChannel = notifyRaw === "Slack" || notifyRaw === "Email" ? notifyRaw : "Slack + Email";
-  const r = store.createReport(intake, ae, notify);
+  const session = await getSession();
+  const r = await store.createReport(intake, ae, notify, session?.name ?? "Reviewer");
+  await flushed(r.id);
   revalidatePath("/reports");
   redirect(`/reports/${r.id}`);
 }
@@ -55,7 +58,8 @@ export async function approveKeywords(formData: FormData) {
   const id = String(formData.get("id"));
   const cities = formData.getAll("city").map(String);
   const keywords = formData.getAll("keyword").map(String).map((k) => k.trim()).filter(Boolean);
-  store.approveKeywords(id, cities, Array.from(new Set(keywords)));
+  await store.approveKeywords(id, cities, Array.from(new Set(keywords)));
+  await flushed(id);
   revalidatePath("/reports");
   redirect(`/reports/${id}`);
 }
@@ -63,7 +67,8 @@ export async function approveKeywords(formData: FormData) {
 export async function pickCompetitors(formData: FormData) {
   const id = String(formData.get("id"));
   const ids = formData.getAll("competitor").map(String);
-  store.pickCompetitors(id, ids);
+  await store.pickCompetitors(id, ids);
+  await flushed(id);
   revalidatePath("/reports");
   redirect(`/reports/${id}`);
 }
@@ -73,7 +78,8 @@ export async function confirmListings(formData: FormData) {
   const urls: Record<string, string> = {};
   for (const [k, v] of formData.entries()) if (k.startsWith("url:")) urls[k.slice(4)] = String(v);
   const checked = formData.getAll("ai").map(String);
-  store.confirmListings(id, urls, checked);
+  await store.confirmListings(id, urls, checked);
+  await flushed(id);
   revalidatePath("/reports");
   redirect(`/reports/${id}`);
 }
@@ -85,14 +91,24 @@ export async function approveReport(formData: FormData) {
   const levels = formData.getAll("level").map(String) as Finding["level"][];
   const texts = formData.getAll("finding").map(String);
   const findings: Finding[] = texts.map((text, i) => ({ level: levels[i] ?? "watch", text }));
-  store.approveReport(id, bottomLine, findings, session?.name ?? "Reviewer");
+  await store.approveReport(id, bottomLine, findings, session?.name ?? "Reviewer");
+  await flushed(id);
   revalidatePath("/reports");
   redirect(`/reports/${id}?approved=1`);
 }
 
+/** Admin action on Settings: lifts a Copyscape pause after the cause is fixed. */
+export async function resetCopyscape() {
+  const { guard } = await import("@/lib/guard");
+  guard.copyscape.reset();
+  revalidatePath("/settings");
+  redirect("/settings");
+}
+
 export async function sendBack(formData: FormData) {
   const id = String(formData.get("id"));
-  store.sendBack(id);
+  await store.sendBack(id);
+  await flushed(id);
   revalidatePath("/reports");
   redirect(`/reports/${id}/listings`);
 }

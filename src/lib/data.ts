@@ -40,7 +40,7 @@ export const VERTICAL_WORD: Record<Vertical, string> = {
 /* ------------------------------------------------------------------ */
 /* Seeds                                                                */
 /* ------------------------------------------------------------------ */
-export const DRIVE_FOLDER = "Shared drives / Sales / MSM Reports";
+export const DRIVE_FOLDER = "MSM Reports folder in Drive";
 
 interface Seed {
   id: string;
@@ -352,14 +352,15 @@ function buildListings(s: Seed): Listing[] {
     if (notListed.has(platform)) {
       return { platform, name: null, address: null, phone: null, url: null, match: "not-listed", source, confirmed: false };
     }
-    const slug = nameOnFile.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+    // Sample listings link to a search for the business on each platform, never to a guessed listing page.
+    const q = encodeURIComponent(nameOnFile);
     const urls: Record<string, string> = {
-      Google: `https://www.google.com/maps/search/${encodeURIComponent(nameOnFile)}`,
-      Bing: `https://www.bing.com/maps?q=${encodeURIComponent(nameOnFile)}`,
-      Yelp: `https://www.yelp.com/biz/${slug}`,
-      Facebook: `https://www.facebook.com/${slug}`,
-      "Yellow Pages": `https://www.yellowpages.com/search?search_terms=${encodeURIComponent(nameOnFile)}`,
-      Zocdoc: `https://www.zocdoc.com/practice/${slug}`,
+      Google: `https://www.google.com/maps/search/${q}`,
+      Bing: `https://www.bing.com/maps?q=${q}`,
+      Yelp: `https://www.yelp.com/search?find_desc=${q}`,
+      Facebook: `https://www.google.com/search?q=${q}+site%3Afacebook.com`,
+      "Yellow Pages": `https://www.yellowpages.com/search?search_terms=${q}`,
+      Zocdoc: `https://www.google.com/search?q=${q}+site%3Azocdoc.com`,
     };
     let match: Listing["match"] = "match";
     let shownPhone = phone;
@@ -428,16 +429,20 @@ export function stepDetail(r: Report, stepId: number): string {
   switch (stepId) {
     case 1: return r.wordpress ? "WordPress detected" + (r.legacySite ? ", legacy site found" : "") : "Not WordPress";
     case 2: return `${selKw.length} keywords, ${selCities} cities`;
-    case 3: return `${onP1} / ${total} on page 1`;
-    case 4: return "4 runs, scores saved";
-    case 5: return over ? `${over} page${over === 1 ? "" : "s"} over 5%` : "All pages under 5%";
-    case 6: return missing.length ? `${missing.join(", ")} not listed` : "All 6 platforms found";
-    case 7: return "Client and competitors";
-    case 8: return picked ? `${picked} competitors chosen` : "Pick 2 to 4";
+    case 3: return r.provenance[3] === "not run" ? "Not run, sample positions kept" : `${onP1} / ${total} on page 1`;
+    case 4: return r.provenance[4] === "not run" ? "Not run" : "4 runs, scores saved";
+    case 5: return r.provenance[5] === "not run" ? (r.copyscape[0]?.finding.replace(/^Not run: /, "Not run: ") ?? "Not run") : over ? `${over} page${over === 1 ? "" : "s"} over 5%` : "All pages under 5%";
+    case 6: {
+      const checked = r.listings.filter((l) => l.match !== "not-checked" && l.match !== "not-applicable");
+      if (!checked.length) return "Not checked";
+      return missing.length ? `${missing.join(", ")} not listed` : `${checked.length} platforms found`;
+    }
+    case 7: return r.reviews.some((x) => x.rating != null || x.reviews != null) ? "Client and competitors" : "Not checked";
+    case 8: return picked ? `${picked} competitors chosen` : r.competitors.length ? "Pick 2 to 4" : "None found";
     case 9: return picked ? `${picked * total} positions pulled` : "";
-    case 10: return `${r.aiMode.filter((a) => a.shows).length} / ${r.aiMode.length} keywords name the practice`;
+    case 10: return r.provenance[10] === "live" ? `${r.aiMode.filter((a) => a.shows).length} / ${r.aiMode.length} keywords name the practice` : "Not checked";
     case 11: return `${r.findings.length} findings drafted`;
-    case 12: return "Google Sheet, 6 tabs";
+    case 12: return r.status === "sent" ? "Google Sheet, 6 tabs" : "Created on approval";
     default: return "";
   }
 }
@@ -499,8 +504,11 @@ export function buildReport(s: Seed): Report {
   const delivery: Delivery = s.status === "sent"
     ? { sheetUrl: "#", driveFolder: DRIVE_FOLDER, sentTo: s.ae ?? "Lila Stone", sentVia: s.notify ?? "Slack + Email", sentAt: s.approvedAt, aeApproval: "approved", hubspot: "not-connected" }
     : { driveFolder: DRIVE_FOLDER, aeApproval: "not-sent", hubspot: "not-connected" };
+  const provenance: Report["provenance"] = {};
+  for (let i = 1; i < s.currentStep; i++) provenance[i] = "sample";
+  if (s.status === "ready" || s.status === "sent") provenance[s.currentStep] = "sample";
   const r: Report = {
-    id: s.id, intake: s.intake, ae: s.ae ?? "Lila Stone", notify: s.notify ?? "Slack + Email", delivery,
+    id: s.id, intake: s.intake, ae: s.ae ?? "Lila Stone", notify: s.notify ?? "Slack + Email", delivery, provenance, sitePages: [],
     status: s.status, currentStep: s.currentStep, nextStepLabel: "", startedAt: s.startedAt,
     approvedBy: s.approvedBy, approvedAt: s.approvedAt, wordpress: s.wordpress, legacySite: s.legacySite, services: s.services,
     cities: selectedCities, keywords, steps: buildSteps(s.currentStep, s.status), log: [], ranks, competitors, competitorRanks: compRanks,

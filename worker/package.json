@@ -1,0 +1,14 @@
+{
+  "name": "msm-rank-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Runs the MSM rank checks and Google AI Mode reads in a real browser on an office PC.",
+  "scripts": {
+    "setup": "npx playwright install chromium",
+    "start": "node worker.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.50.0"
+  }
+}

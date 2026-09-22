@@ -8,7 +8,7 @@ export const metadata = { title: "Checkpoint 1" };
 
 export default async function KeywordsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const r = getReport(id);
+  const r = await getReport(id);
   if (!r) notFound();
   if (!(r.status === "waiting" && r.currentStep === 2)) redirect(reportHref(r));
 

@@ -1,87 +1,86 @@
 import type { Metadata } from "next";
-import { ALLOWED_USERS, ROLE_DESCRIPTION } from "@/lib/auth";
+import { allowedUsers, ROLE_DESCRIPTION } from "@/lib/auth";
 import { DRIVE_FOLDER } from "@/lib/data";
+import { authMode, checkAll, liveDisabled, serviceAccount, signedInAs } from "@/lib/health";
+import { guard } from "@/lib/guard";
+import { env } from "@/lib/env";
+import { resetCopyscape } from "@/app/actions";
 
 export const metadata: Metadata = { title: "Settings" };
+export const dynamic = "force-dynamic";
 
-const RESEARCH_SOURCES = [
-  { name: "Rank-check API", use: "30 local searches, competitor positions" },
-  { name: "Google PageSpeed", use: "Scores for 2 pages, mobile and desktop" },
-  { name: "Copyscape", use: "Content originality for 3 pages" },
-  { name: "Google Places", use: "Google listing and reviews" },
-  { name: "Yelp Fusion", use: "Yelp listing and reviews" },
-  { name: "Browser run", use: "Google AI Mode, Facebook, Bing, Yellow Pages, Zocdoc" },
-];
+export default async function SettingsPage() {
+  const [{ users, source }, health] = await Promise.all([allowedUsers(), checkAll()]);
+  const sa = serviceAccount();
+  const userEmail = authMode() === "user" ? await signedInAs() : "";
+  const cs = guard.copyscape.status();
 
-const DELIVERY = [
-  { name: "Google Sheets + Drive", use: `Creates the report as a Sheet in ${DRIVE_FOLDER}`, status: "todo", label: "Not connected yet" },
-  { name: "Slack", use: "Sends the Sheet link to the assigned AE", status: "todo", label: "Not connected yet" },
-  { name: "Email", use: "Sends the Sheet link to the assigned AE", status: "todo", label: "Not connected yet" },
-  { name: "HubSpot CRM", use: "Writes the link and date to the MSM Report Link property on the client record", status: "waiting", label: "Feasible, being tested" },
-  { name: "Database (Postgres)", use: "Stores every report, its data and the approval log", status: "todo", label: "Not connected yet" },
-];
-
-export default function SettingsPage() {
   return (
     <>
       <div className="topbar">
-        <h1 className="h1">Settings<small>Who can sign in, where reports go, and where the data comes from</small></h1>
+        <h1 className="h1">Settings<small>Who can sign in, and whether each connection is working right now</small></h1>
+      </div>
+
+      {liveDisabled() && <div className="banner waiting">Live connections are switched off (MSM_DISABLE_LIVE=1). Every step reports &ldquo;not run&rdquo;.</div>}
+
+      <div className="card">
+        <h3>Connections <span className="note">checked live when this page opens</span></h3>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Connection</th><th>Used for</th><th>Status</th><th>Detail</th></tr></thead>
+            <tbody>
+              {health.map((h) => (
+                <tr key={h.name}>
+                  <td><b>{h.name}</b></td>
+                  <td className="dim">{h.use}</td>
+                  <td>{h.ok ? <span className="pill done">Connected</span> : h.configured ? <span className="pill flag">Error</span> : <span className="pill todo">Not connected</span>}</td>
+                  <td className="dim">{h.detail}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="card" style={{ marginTop: 12, background: cs.paused ? "var(--red-100)" : "var(--bg)" }}>
+          <h3>Copyscape spending guard</h3>
+          <div className="kv">
+            <div><b>Cost</b>About 5 cents a page, {env.copyscapePages} page{env.copyscapePages === 1 ? "" : "s"} a report (COPYSCAPE_PAGES). One call per page, never retried.</div>
+            <div><b>Used today</b>{cs.usedToday} of {cs.limit} pages {cs.cached ? `(${cs.cached} pages cached, reused free for 30 days)` : ""}</div>
+            <div><b>Status</b>{cs.switchedOff ? <span className="pill todo">Switched off for testing (MSM_DISABLE_COPYSCAPE=1)</span> : cs.paused ? <span className="pill flag">Paused since {cs.pausedAt}: {cs.paused}</span> : <span className="pill done">Active</span>}</div>
+            {cs.paused && <div><form action={resetCopyscape}><button className="btn quiet sm" type="submit">Reset after fixing the cause</button></form></div>}
+          </div>
+        </div>
+        {sa && <p className="note" style={{ marginTop: 8 }}>Google access: service account <code>{sa}</code>. Share the MSM Reports folder (in a Shared Drive) and the MSM Database sheet with this address as Editor.</p>}
+        {userEmail && <p className="note" style={{ marginTop: 8 }}>Google access: signed in as <code>{userEmail}</code>. Report Sheets are created in that account&rsquo;s Drive, in the MSM Reports folder.</p>}
+        <p className="note" style={{ marginTop: 4 }}>Keys live in the server environment and are never shown here.</p>
       </div>
 
       <div className="card">
-        <h3>Users <span className="note">allow-list, EKWA addresses only</span></h3>
+        <h3>Users <span className="note">{source === "sheet" ? "read from the Users tab of the MSM Database sheet" : "built-in list, sheet not connected"}</span></h3>
         <div className="table-wrap">
           <table>
             <thead><tr><th>Name</th><th>Email</th><th>Team</th><th>Role</th><th>Can</th></tr></thead>
             <tbody>
-              {ALLOWED_USERS.map((u) => (
+              {users.map((u) => (
                 <tr key={u.email}>
                   <td><b>{u.name}</b></td><td>{u.email}</td><td>{u.team}</td>
                   <td><span className={`pill ${u.role === "Admin" ? "sent" : u.role === "Reviewer" ? "running" : u.role === "AE" ? "waiting" : "todo"}`}>{u.role}</span></td>
-                  <td className="dim">{ROLE_DESCRIPTION[u.role]}</td>
+                  <td className="dim">{ROLE_DESCRIPTION[u.role] ?? ""}</td>
                 </tr>
               ))}
-              <tr><td colSpan={5}><button className="btn quiet sm" type="button" disabled>+ Add user</button> <span className="note">Admin only. Enabled when sign-in moves to Supabase.</span></td></tr>
             </tbody>
           </table>
         </div>
-      </div>
-
-      <div className="row">
-        <div className="card grow">
-          <h3>Report delivery</h3>
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Connection</th><th>Used for</th><th>Status</th></tr></thead>
-              <tbody>
-                {DELIVERY.map((s) => <tr key={s.name}><td>{s.name}</td><td className="dim">{s.use}</td><td><span className={`pill ${s.status}`}>{s.label}</span></td></tr>)}
-              </tbody>
-            </table>
-          </div>
-          <p className="note" style={{ marginTop: 8 }}>Output format is a Google Sheet. Excel download stays available as a fallback.</p>
-        </div>
-        <div className="card grow">
-          <h3>Research data sources</h3>
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Source</th><th>Used for</th><th>Status</th></tr></thead>
-              <tbody>
-                {RESEARCH_SOURCES.map((s) => <tr key={s.name}><td>{s.name}</td><td className="dim">{s.use}</td><td><span className="pill todo">Not connected yet</span></td></tr>)}
-              </tbody>
-            </table>
-          </div>
-          <p className="note" style={{ marginTop: 8 }}>Keys are stored server-side only and never shown after saving.</p>
-        </div>
+        <p className="note" style={{ marginTop: 8 }}>To add or remove a person, edit the Users tab of the MSM Database sheet. Changes apply within a minute.</p>
       </div>
 
       <div className="row">
         <div className="card grow">
           <h3>Report repository</h3>
           <div className="kv">
-            <div><b>Database</b>Every report, its research data, checkpoints and approval log. Searchable from the Reports page.</div>
-            <div><b>Drive folder</b>{DRIVE_FOLDER}, one folder per client, one Sheet per report.</div>
+            <div><b>Database</b>Every approved report, its research data and the log are written to the MSM Database sheet.</div>
+            <div><b>Snapshot</b><a className="btn quiet sm" href="/api/database">Download database snapshot</a> <span className="note">What the app holds right now, in the same layout.</span></div>
+            <div><b>Drive folder</b>{DRIVE_FOLDER}. One Google Sheet per approved report.</div>
             <div><b>Naming</b>&lt;Client&gt; - &lt;Date&gt; MSM</div>
-            <div><b>Who can open</b>Everyone on the allow-list. Viewers and AEs are read only.</div>
           </div>
         </div>
         <div className="card grow">

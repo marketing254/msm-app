@@ -8,7 +8,7 @@ export const metadata = { title: "Checkpoint 2" };
 
 export default async function CompetitorsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const r = getReport(id);
+  const r = await getReport(id);
   if (!r) notFound();
   if (!(r.status === "waiting" && r.currentStep === 8)) redirect(reportHref(r));
   const total = r.keywords.filter((k) => k.selected).length * r.cities.filter((c) => c.selected).length;

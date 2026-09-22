@@ -3,12 +3,21 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-/** Re-fetches the page on an interval while research is running. */
-export function AutoRefresh({ seconds }: { seconds: number }) {
+/**
+ * While research is running: asks the server to run the next step, then refreshes the page.
+ * advanceUrl is the route that runs a step (one report or all running reports).
+ */
+export function AutoRefresh({ seconds, advanceUrl }: { seconds: number; advanceUrl?: string }) {
   const router = useRouter();
   useEffect(() => {
-    const t = setInterval(() => router.refresh(), seconds * 1000);
-    return () => clearInterval(t);
-  }, [router, seconds]);
+    let stopped = false;
+    const tickOnce = async () => {
+      if (advanceUrl) { try { await fetch(advanceUrl, { method: "POST" }); } catch { /* retry on next tick */ } }
+      if (!stopped) router.refresh();
+    };
+    const t = setInterval(tickOnce, seconds * 1000);
+    void tickOnce();
+    return () => { stopped = true; clearInterval(t); };
+  }, [router, seconds, advanceUrl]);
   return null;
 }

@@ -16,7 +16,7 @@ export function ListingsForm({ report: r }: { report: Report }) {
   const toggleC = (p: string) => setConfirmed((s) => { const n = new Set(s); if (n.has(p)) n.delete(p); else n.add(p); return n; });
   const toggleA = (k: string) => setChecked((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
 
-  const pending = needConfirm.filter((l) => l.match !== "not-listed" && !confirmed.has(l.platform)).length;
+  const pending = needConfirm.filter((l) => l.match !== "not-listed" && l.match !== "not-checked" && !confirmed.has(l.platform)).length;
   const ok = pending === 0;
   const home = r.cities.find((c) => c.home) ?? r.cities[0];
 
@@ -40,6 +40,12 @@ export function ListingsForm({ report: r }: { report: Report }) {
                       <td colSpan={3} className="dim">Not applicable: {l.reason}</td><td className="dim">-</td>
                       <td><span className="tag watch">N/A</span></td><td className="note">Marked in the report with the reason</td>
                     </>
+                  ) : l.match === "not-checked" ? (
+                    <>
+                      <td colSpan={3} className="dim">Not checked: the rank worker was not running for this report</td><td className="dim">-</td>
+                      <td><span className="tag watch">Not checked</span></td>
+                      <td><input className="input" style={{ minWidth: 200 }} placeholder="Paste the listing link if you have it" value={urls[l.platform] ?? ""} onChange={(e) => setUrls((u) => ({ ...u, [l.platform]: e.target.value }))} /></td>
+                    </>
                   ) : l.match === "not-listed" ? (
                     <>
                       <td colSpan={3} className="dim">No listing found</td><td className="dim">-</td>
@@ -56,7 +62,9 @@ export function ListingsForm({ report: r }: { report: Report }) {
                       <td>
                         {l.source === "api"
                           ? <span className="note">Verified by API</span>
-                          : <label className="check"><input type="checkbox" checked={confirmed.has(l.platform)} onChange={() => toggleC(l.platform)} />Confirm link</label>}
+                          : l.source === "worker"
+                            ? <span className="note">Read from the {l.platform} page{l.reason && l.reason !== "Match" ? `: ${l.reason}` : ""}</span>
+                            : <label className="check"><input type="checkbox" checked={confirmed.has(l.platform)} onChange={() => toggleC(l.platform)} />Confirm link</label>}
                       </td>
                     </>
                   )}

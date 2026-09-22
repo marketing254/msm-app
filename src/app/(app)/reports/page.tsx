@@ -7,8 +7,8 @@ import { AutoRefresh } from "@/components/AutoRefresh";
 export const metadata: Metadata = { title: "Reports" };
 export const dynamic = "force-dynamic";
 
-export default function ReportsPage() {
-  const reports = listReports();
+export default async function ReportsPage() {
+  const reports = await listReports();
   const count = (s: string) => reports.filter((r) => r.status === s).length;
   const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
   const sentThisMonth = reports.filter((r) => r.status === "sent" && new Date(r.approvedAt ?? r.startedAt) >= monthStart).length;
@@ -17,7 +17,7 @@ export default function ReportsPage() {
 
   return (
     <>
-      {anyRunning && <AutoRefresh seconds={3} />}
+      {anyRunning && <AutoRefresh seconds={3} advanceUrl="/api/reports/advance" />}
       <div className="topbar">
         <h1 className="h1">Reports<small>Every MSM report in one place. AEs can search and open any completed report here.</small></h1>
         <Link href="/reports/new" className="btn primary">+ New report</Link>
@@ -57,7 +57,9 @@ export default function ReportsPage() {
                     <td>{r.nextStepLabel}</td>
                     <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                       {r.status === "sent"
-                        ? <a className="btn sm" href={r.delivery.sheetUrl ?? "#"} title="Opens when Google Sheets is connected">Open Sheet</a>
+                        ? (r.delivery.sheetUrl && r.delivery.sheetUrl !== "#"
+                          ? <a className="btn sm" href={r.delivery.sheetUrl} target="_blank" rel="noreferrer">Open Sheet</a>
+                          : <a className="btn quiet sm" href={`/api/reports/${r.id}/excel`}>Excel</a>)
                         : <Link className={`btn sm${primary ? "" : " quiet"}`} href={href}>{primary ? "Open" : "View"}</Link>}
                     </td>
                   </tr>

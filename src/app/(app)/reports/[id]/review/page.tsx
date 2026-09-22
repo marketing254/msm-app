@@ -1,3 +1,6 @@
+// Vercel: allow up to 60 s for live research calls (PageSpeed, Copyscape, Sheet creation).
+export const maxDuration = 60;
+
 import { notFound, redirect } from "next/navigation";
 import { getReport, reportHref } from "@/lib/store";
 import { ReportHeader } from "@/components/ui";
@@ -8,7 +11,7 @@ export const metadata = { title: "Review and approve" };
 
 export default async function ReviewPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const r = getReport(id);
+  const r = await getReport(id);
   if (!r) notFound();
   if (r.status !== "ready" && r.status !== "sent") redirect(reportHref(r));
 

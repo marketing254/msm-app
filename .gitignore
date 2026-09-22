@@ -46,3 +46,8 @@ CLAUDE.md
 
 # local test output
 /shots
+
+# rank worker: browser profile and local config stay on the PC
+/worker/node_modules
+/worker/profile
+/worker/.env

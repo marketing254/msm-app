@@ -6,6 +6,8 @@ const SESSION_COOKIE = "msm_session";
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const signedIn = Boolean(request.cookies.get(SESSION_COOKIE)?.value);
+  // The rank worker authenticates with its own token, checked inside the route.
+  if (pathname.startsWith("/api/worker/")) return NextResponse.next();
   if (pathname.startsWith("/sign-in")) {
     if (signedIn) return NextResponse.redirect(new URL("/reports", request.url));
     return NextResponse.next();

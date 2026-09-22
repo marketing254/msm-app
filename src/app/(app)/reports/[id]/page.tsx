@@ -1,6 +1,9 @@
+// Vercel: allow up to 60 s for live research calls (PageSpeed, Copyscape, Sheet creation).
+export const maxDuration = 60;
+
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getReport, reportHref } from "@/lib/store";
+import { getReport, reportHref, reportJob } from "@/lib/store";
 import { CHECKPOINTS } from "@/lib/data";
 import { ReportHeader, StatusPill, formatDate } from "@/components/ui";
 import { AutoRefresh } from "@/components/AutoRefresh";
@@ -9,13 +12,13 @@ export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  return { title: getReport(id)?.intake.company ?? "Report" };
+  return { title: (await getReport(id))?.intake.company ?? "Report" };
 }
 
 export default async function ReportPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ approved?: string }> }) {
   const { id } = await params;
   const { approved } = await searchParams;
-  const r = getReport(id);
+  const r = await getReport(id);
   if (!r) notFound();
 
   const done = r.steps.filter((s) => s.state === "done").length;
@@ -23,18 +26,21 @@ export default async function ReportPage({ params, searchParams }: { params: Pro
   const home = r.cities.find((c) => c.home) ?? r.cities[0];
   const cp = CHECKPOINTS[r.currentStep];
   const href = reportHref(r);
+  const job = reportJob(r);
 
   return (
     <>
-      {r.status === "running" && <AutoRefresh seconds={2} />}
+      {r.status === "running" && <AutoRefresh seconds={2} advanceUrl={`/api/reports/${r.id}/advance`} />}
       <ReportHeader report={r} subtitle={`Started ${formatDate(r.startedAt).replace(/^(Today|Yesterday)/, (m) => m.toLowerCase())} · ${r.intake.vertical} · ${home.name}, ${home.state}`} />
 
       {r.status === "sent" && (
         <div className="banner ready">
-          {approved
-            ? `Approved. Google Sheet created and the link sent to ${r.delivery.sentTo} via ${r.delivery.sentVia}.`
-            : `Approved by ${r.approvedBy} on ${formatDate(r.approvedAt ?? r.startedAt)}. Sent to ${r.delivery.sentTo}.`}
-          <a className="btn success" href={r.delivery.sheetUrl ?? "#"} title="Opens when Google Sheets is connected">Open Google Sheet</a>
+          {r.delivery.sheetUrl && r.delivery.sheetUrl !== "#"
+            ? (approved ? `Approved. Google Sheet created in ${r.delivery.driveFolder}. Assigned to ${r.delivery.sentTo}.` : `Approved by ${r.approvedBy} on ${formatDate(r.approvedAt ?? r.startedAt)}. Assigned to ${r.delivery.sentTo}.`)
+            : `Approved by ${r.approvedBy ?? "reviewer"}. The Google Sheet was not created; see the log. Excel fallback is available.`}
+          {r.delivery.sheetUrl && r.delivery.sheetUrl !== "#"
+            ? <a className="btn success" href={r.delivery.sheetUrl} target="_blank" rel="noreferrer">Open Google Sheet</a>
+            : <span className="btn quiet" title="Drive folder not connected or the Sheet could not be created" style={{ opacity: 0.6, cursor: "default" }}>No Google Sheet</span>}
           <a className="btn quiet" href={`/api/reports/${r.id}/excel`} style={{ marginLeft: 0 }}>Excel fallback</a>
         </div>
       )}
@@ -47,7 +53,13 @@ export default async function ReportPage({ params, searchParams }: { params: Pro
           <Link className="btn primary" href={href}>Open checkpoint {cp}</Link>
         </div>
       )}
-      {r.status === "running" && (
+      {r.status === "running" && job && job.status === "captcha" && (
+        <div className="banner waiting">Google is showing a captcha on the worker PC. Open the worker&rsquo;s browser window, tick the box, and the searches continue on their own.</div>
+      )}
+      {r.status === "running" && job && job.status !== "captcha" && job.status !== "done" && (
+        <div className="banner running">Rank checks are running in the browser worker: {job.message}. About 15 seconds per search.</div>
+      )}
+      {r.status === "running" && !(job && job.status !== "done") && (
         <div className="banner running">Research is running. This page updates on its own; you can leave and come back.</div>
       )}
 
@@ -59,8 +71,13 @@ export default async function ReportPage({ params, searchParams }: { params: Pro
             {r.steps.map((s) => (
               <div key={s.id} className={`step ${s.state}`}>
                 <span className="n">{s.id}</span>
-                <span className="t">{s.title}{CHECKPOINTS[s.id] ? <span className="note"> · checkpoint {CHECKPOINTS[s.id]}</span> : null}</span>
-                <span className="m">{s.state === "waiting" ? "Waiting for you" : s.state === "running" ? "Running" : s.detail}</span>
+                <span className="t">
+                  {s.title}{CHECKPOINTS[s.id] ? <span className="note"> · checkpoint {CHECKPOINTS[s.id]}</span> : null}
+                  {s.state === "done" && r.provenance[s.id] === "live" && <span className="tag strength" style={{ marginLeft: 8 }}>live</span>}
+                  {s.state === "done" && false}
+                  {s.state === "done" && r.provenance[s.id] === "not run" && <span className="tag attention" style={{ marginLeft: 8 }}>not run</span>}
+                </span>
+                <span className="m">{s.state === "waiting" ? "Waiting for you" : s.state === "running" ? (s.id === 3 && job && job.status !== "done" ? job.message : "Running") : s.detail}</span>
               </div>
             ))}
           </div>
@@ -83,7 +100,7 @@ export default async function ReportPage({ params, searchParams }: { params: Pro
               <div><b>Output</b>Google Sheet in {r.delivery.driveFolder}</div>
               <div><b>Assigned AE</b>{r.ae}</div>
               <div><b>Send link via</b>{r.notify}</div>
-              <div><b>Google Sheet</b>{r.delivery.sheetUrl ? <a className="link" href={r.delivery.sheetUrl} title="Opens when Google Sheets is connected">Open sheet</a> : <span className="dim">Created on approval</span>}</div>
+              <div><b>Google Sheet</b>{r.delivery.sheetUrl && r.delivery.sheetUrl !== "#" ? <a className="link" href={r.delivery.sheetUrl} target="_blank" rel="noreferrer">{r.delivery.sheetUrl.replace(/^https?:\/\//, "").slice(0, 48)}...</a> : r.status === "sent" ? <span className="dim">Not created (see log)</span> : <span className="dim">Created on approval</span>}</div>
               <div><b>AE approval</b>
                 {r.delivery.aeApproval === "approved" && <span className="pill done">Approved by {r.delivery.sentTo}</span>}
                 {r.delivery.aeApproval === "pending" && <span className="pill waiting">Awaiting {r.delivery.sentTo}</span>}
