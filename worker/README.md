@@ -14,9 +14,13 @@ Double-click **Start MSM Worker.bat**. The first run installs what it needs (abo
 
 Or from a terminal in the folder: `npm install`, `npm run setup` once, then `npm start`.
 
-To have it start whenever the PC is switched on: press Win+R, type `shell:startup`, and put a shortcut to `Start MSM Worker.bat` in the folder that opens.
+### Run it in the background with no window (recommended)
 
-A browser window opens when a job arrives and closes when it is done. Leave the terminal open while reports are being researched. The app's Settings page shows "Online on <PC name>" while it runs.
+Double-click **Start MSM Worker (hidden).vbs** instead. Nothing appears on screen; the worker runs in the background and writes to `worker.log` in this folder. To have it start whenever the PC is switched on: press Win+R, type `shell:startup`, Enter, and put a shortcut to the .vbs file in the folder that opens.
+
+To stop it, double-click **Stop MSM Worker.bat**.
+
+A Chrome window opens when a job arrives and closes when it is done. The app's Settings page shows "Online on <PC name>" while the worker runs.
 
 ## What it does per report
 
@@ -36,4 +40,4 @@ The browser is the Google Chrome installed on the PC, started with its normal se
 - "App not reachable": check MSM_APP_URL and that the app is running.
 - "HTTP 401": the token does not match the app's WORKER_TOKEN.
 - Google "403 ... does not have permission": the office address is blocked for a while after too many searches. The worker waits and retries every 2 minutes for up to 45 minutes; the report page shows the message. If it lasts longer, stop the worker, delete the `profile` folder, wait an hour and start the report again.
-- A job marked failed: the report keeps sample positions and says "not run" on step 3. Fix the cause and start the report again.
+- A job marked failed: the report shows "-" for every position and says "not run" on step 3. Fix the cause and start the report again.

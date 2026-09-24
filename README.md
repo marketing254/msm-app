@@ -23,7 +23,7 @@ For development with hot reload use `npm run dev` instead of build + start.
 4. Deploy. Open `<your-vercel-url>/settings` and check every row says Connected.
 5. On the worker PC, set `MSM_APP_URL` in `worker/.env` to the Vercel URL and start the worker.
 
-State survives restarts: every report and worker job is saved to a `State` tab in the MSM Database sheet (created automatically) and reloaded when a server instance starts. Do not edit that tab.
+State survives restarts: every report and worker job is saved to a `State` tab in the MSM Database sheet (created automatically). Each server instance loads it on start and, on every later request, picks up rows other instances have saved since (Vercel can serve the worker and a user's page from different instances). Do not edit that tab.
 
 Sign in with any `@ekwa.com` address and any 6-digit code (for example `dulmini@ekwa.com` / `123456`).
 

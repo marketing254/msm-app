@@ -13,7 +13,7 @@ import { appendRows, createReportSheet, nextDataId, nextLogId, upsertReportRow }
 import { buildWorkbook } from "./excel";
 import { reportDataRows, reportRow } from "./dbExport";
 import { summarise } from "@/components/ui";
-import { loadAll, persist } from "./persist";
+import { changedElsewhere, loadAll, persist } from "./persist";
 import { restoreJob, restoreWorker } from "./worker";
 
 /**
@@ -44,29 +44,50 @@ function store(): Store {
   return globalThis.__msmStore;
 }
 
-declare global { var __msmLoaded: Promise<void> | undefined }
+declare global { var __msmLoaded: Promise<void> | undefined; var __msmSync: { at: number; run: Promise<void> | null } | undefined }
 
-/** Loads saved reports, jobs and the worker heartbeat from the State tab once per server instance. */
+const SYNC_MS = 2000;
+
+/** Puts rows read from the State tab into memory. A report mid-step on this instance is left alone. */
+function apply(all: Record<string, unknown>) {
+  const s = store();
+  for (const [id, v] of Object.entries(all)) {
+    if (id === "WORKER") restoreWorker(v as { lastHeartbeat: number; machine: string });
+    else if (id.startsWith("J")) restoreJob(v as RankJob);
+    else {
+      const r = v as Report;
+      if (!r || !r.id || !r.intake) continue;
+      if (s.meta.get(r.id)?.busy) continue;
+      s.reports.set(r.id, r);
+      if (!s.meta.has(r.id)) s.meta.set(r.id, { profile: "mixed", lastStepAt: 0, busy: false });
+      const n = Number(r.id); if (Number.isFinite(n) && n >= s.nextId) s.nextId = n + 1;
+    }
+  }
+}
+
+/**
+ * Loads saved reports, jobs and the worker heartbeat from the State tab once per server instance,
+ * then on every later call picks up rows other instances have saved since (at most once every 2 s).
+ * On Vercel the worker's calls and a user's page views can land on different instances; this keeps them in step.
+ */
 export async function ensureLoaded(): Promise<void> {
   if (!globalThis.__msmLoaded) {
     globalThis.__msmLoaded = (async () => {
-      const s = store();
-      let all: Record<string, unknown> = {};
-      try { all = await loadAll(); } catch (e) { console.error("[state] load failed:", e instanceof Error ? e.message : String(e)); return; }
-      for (const [id, v] of Object.entries(all)) {
-        if (id === "WORKER") restoreWorker(v as { lastHeartbeat: number; machine: string });
-        else if (id.startsWith("J")) restoreJob(v as RankJob);
-        else {
-          const r = v as Report;
-          if (!r || !r.id || !r.intake) continue;
-          s.reports.set(r.id, r);
-          s.meta.set(r.id, { profile: "mixed", lastStepAt: 0, busy: false });
-          const n = Number(r.id); if (Number.isFinite(n) && n >= s.nextId) s.nextId = n + 1;
-        }
-      }
+      try { apply(await loadAll()); } catch (e) { console.error("[state] load failed:", e instanceof Error ? e.message : String(e)); }
     })();
+    await globalThis.__msmLoaded;
+    globalThis.__msmSync = { at: Date.now(), run: null };
+    return;
   }
   await globalThis.__msmLoaded;
+  const sync = globalThis.__msmSync ?? (globalThis.__msmSync = { at: 0, run: null });
+  if (sync.run) { await sync.run; return; }
+  if (Date.now() - sync.at < SYNC_MS) return;
+  sync.run = (async () => {
+    try { apply(await changedElsewhere()); } catch (e) { console.error("[state] sync failed:", e instanceof Error ? e.message : String(e)); }
+    finally { sync.at = Date.now(); sync.run = null; }
+  })();
+  await sync.run;
 }
 
 function save(r: Report) { persist(r.id, r); }

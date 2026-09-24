@@ -51,3 +51,4 @@ CLAUDE.md
 /worker/node_modules
 /worker/profile
 /worker/.env
+/worker/worker.log

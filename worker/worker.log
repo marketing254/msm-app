@@ -1,13 +1,6 @@
-22:25:51 MSM rank worker on Rushdha, app http://localhost:3005, delay 6000 ms, visible browser
-22:26:36 Job J0001: Ever & Ever Vitality Studio, 30 searches + 10 AI Mode reads
-22:26:39   1/30 chemical peel treatments | Charlotte: not on page 1
-22:26:50   2/30 facial contouring services | Charlotte: not on page 1
-22:26:58   3/30 hair restoration solutions | Charlotte: not on page 1
-22:27:09   4/30 IV hydration therapy | Charlotte: not on page 1
-22:27:16   5/30 microneedling benefits | Charlotte: not on page 1
-22:27:25   6/30 wrinkle relaxer injections | Charlotte: not on page 1
-22:27:35   7/30 skin health improvement | Charlotte: not on page 1
-22:27:45 CAPTCHA shown. Tick the box in the browser window.
-22:29:15 Captcha cleared, continuing.
-22:29:19   8/30 facial balancing fillers | Charlotte: not on page 1
-22:29:27 Job J0001 failed: page.goto: Target page, context or browser has been closed
+10:07:32 MSM rank worker on Rushdha, app https://msm-app-sigma.vercel.app, delay 15000 ms, visible browser
+10:07:35 Job J0003: Chillicothe Family Dental, 5 searches + 5 AI Mode reads
+10:07:40 Job J0003 failed: page.goto: net::ERR_ABORTED; maybe frame was detached?
+Call log:
+[2m  - navigating to "https://www.google.com/search?q=teeth%20cleaning%20Chillicothe%20OH", waiting until "domcontentloaded"[22m
+

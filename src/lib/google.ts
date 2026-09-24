@@ -124,25 +124,54 @@ async function ensureStateTab(): Promise<void> {
   stateTabChecked = true;
 }
 
-/** All saved state: id -> json string. */
-export async function stateLoad(): Promise<Record<string, string>> {
+/** All saved state: id -> { json, at }. `at` is the save stamp in column B. */
+export async function stateLoad(): Promise<Record<string, { json: string; at: string }>> {
   await ensureStateTab();
   const res = await sheets().spreadsheets.values.get({ spreadsheetId: sheetIdFromUrl(env.databaseSheetUrl), range: `${STATE_TAB}!A2:L` });
   const rows = res.data.values ?? [];
   stateRows = new Map();
-  const out: Record<string, string> = {};
-  rows.forEach((r, i) => { const id = String(r[0] ?? ""); if (!id) return; stateRows!.set(id, i + 2); out[id] = r.slice(2).map(String).join(""); });
+  const out: Record<string, { json: string; at: string }> = {};
+  rows.forEach((r, i) => { const id = String(r[0] ?? ""); if (!id) return; stateRows!.set(id, i + 2); out[id] = { json: r.slice(2).map(String).join(""), at: String(r[1] ?? "") }; });
   return out;
 }
 
-export async function stateSave(id: string, json: string): Promise<void> {
+/** Just the ids and save stamps (columns A and B): cheap enough to poll. */
+export async function stateIndex(): Promise<Record<string, string>> {
   await ensureStateTab();
-  if (!stateRows) await stateLoad();
+  const res = await sheets().spreadsheets.values.get({ spreadsheetId: sheetIdFromUrl(env.databaseSheetUrl), range: `${STATE_TAB}!A2:B` });
+  const rows = res.data.values ?? [];
+  stateRows = new Map();
+  const out: Record<string, string> = {};
+  rows.forEach((r, i) => { const id = String(r[0] ?? ""); if (!id) return; stateRows!.set(id, i + 2); out[id] = String(r[1] ?? ""); });
+  return out;
+}
+
+/** Full rows for the given ids (after stateIndex). */
+export async function stateGet(ids: string[]): Promise<Record<string, { json: string; at: string }>> {
+  const out: Record<string, { json: string; at: string }> = {};
+  if (!ids.length) return out;
+  if (!stateRows) await stateIndex();
+  const ranges = ids.map((id) => stateRows!.get(id)).filter((n): n is number => !!n).map((n) => `${STATE_TAB}!A${n}:L${n}`);
+  if (!ranges.length) return out;
+  const res = await sheets().spreadsheets.values.batchGet({ spreadsheetId: sheetIdFromUrl(env.databaseSheetUrl), ranges });
+  for (const vr of res.data.valueRanges ?? []) {
+    const r = vr.values?.[0]; if (!r) continue;
+    const id = String(r[0] ?? ""); if (!id) continue;
+    out[id] = { json: r.slice(2).map(String).join(""), at: String(r[1] ?? "") };
+  }
+  return out;
+}
+
+/** Saves one row and returns the stamp written to column B. */
+export async function stateSave(id: string, json: string): Promise<string> {
+  await ensureStateTab();
+  if (!stateRows) await stateIndex();
   const chunks: string[] = [];
   for (let i = 0; i < json.length; i += CHUNK) chunks.push(json.slice(i, i + CHUNK));
   if (chunks.length > STATE_COLS - 2) throw new Error(`State for ${id} is too large to save (${json.length} chars)`);
   while (chunks.length < STATE_COLS - 2) chunks.push("");
-  const row = [id, new Date().toISOString(), ...chunks];
+  const at = new Date().toISOString();
+  const row = [id, at, ...chunks];
   const sid = sheetIdFromUrl(env.databaseSheetUrl);
   const rowIndex = stateRows!.get(id);
   if (rowIndex) {
@@ -153,6 +182,7 @@ export async function stateSave(id: string, json: string): Promise<void> {
     if (m) stateRows!.set(id, Number(m[1]));
     else stateRows = null; // unknown position: reload the index next time
   }
+  return at;
 }
 
 /* ---------------- Report Sheet in the MSM Reports folder ---------------- */

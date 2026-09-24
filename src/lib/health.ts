@@ -20,7 +20,7 @@ export async function checkAll(): Promise<Health[]> {
     (async () => {
       const w = workerOnline();
       const configured = has.worker();
-      const detail = !configured ? "No WORKER_TOKEN set. Sample positions are used."
+      const detail = !configured ? "No WORKER_TOKEN set. Rank checks say not run."
         : w.online ? `Online on ${w.machine}, last seen ${w.secondsAgo}s ago`
         : w.secondsAgo == null ? "Token set. Worker has not connected yet; start it on the PC." : `Worker offline, last seen ${Math.round((w.secondsAgo ?? 0) / 60)} min ago`;
       return { name: "Rank checks (browser worker)", use: "30 local searches, competitors, AI Mode", configured, ok: configured && w.online, detail };
