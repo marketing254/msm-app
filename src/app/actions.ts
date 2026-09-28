@@ -67,7 +67,8 @@ export async function approveKeywords(formData: FormData) {
 export async function pickCompetitors(formData: FormData) {
   const id = String(formData.get("id"));
   const ids = formData.getAll("competitor").map(String);
-  await store.pickCompetitors(id, ids);
+  const added = formData.getAll("added").map(String).map((v) => { const i = v.indexOf("|"); return { name: i < 0 ? v : v.slice(0, i), website: i < 0 ? "" : v.slice(i + 1) }; }).filter((a) => a.name.trim());
+  await store.pickCompetitors(id, ids, added);
   await flushed(id);
   revalidatePath("/reports");
   redirect(`/reports/${id}`);

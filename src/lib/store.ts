@@ -1,10 +1,10 @@
-import type { Finding, Intake, KeywordOption, NotifyChannel, Report, Vertical } from "./types";
+import type { CityOption, Finding, Intake, KeywordOption, NotifyChannel, Report, Vertical } from "./types";
 import {
-  CHECKPOINTS, DRIVE_FOLDER, nextStepLabel, PLATFORMS, STEP_TITLES, stepDetail, VERTICAL_CITIES, VERTICAL_KEYWORDS, type Seed,
+  CHECKPOINTS, DRIVE_FOLDER, nextStepLabel, PLATFORMS, STEP_TITLES, stepDetail, VERTICAL_KEYWORDS, type Seed,
 } from "./data";
 import { env, has } from "./env";
 import { inspectSite } from "./site";
-import { aiModeNames, readGoogleReviews, readListing, servicesAndKeywords, writeFindings } from "./openai";
+import { aiModeNames, nearbyCities, readGoogleReviews, readListing, servicesAndKeywords, writeFindings } from "./openai";
 import { createCompetitorJob, createJob, domainOf, getJob, ingest, JOB_TIMEOUT_MS, updateJob, workerOnline } from "./worker";
 import type { RankJob } from "./types";
 import { runPageSpeed } from "./pagespeed";
@@ -26,10 +26,30 @@ interface Store { reports: Map<string, Report>; meta: Map<string, Meta>; nextId:
 
 const STEP_MS = 2500;
 
-function hashStr(s: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
-  return h >>> 0;
+const STREET_WORDS = /^(st|street|rd|road|ave|avenue|blvd|boulevard|dr|drive|ln|lane|way|pkwy|parkway|hwy|highway|ct|court|pl|place|cir|circle|ste|suite|unit|apt|floor|fl|bldg|building|#\S*|n|s|e|w|ne|nw|se|sw|north|south|east|west)\.?,?$/i;
+
+/**
+ * City and state from an intake address. Handles "4212 Six Forks Rd, Raleigh, NC 27609",
+ * "123 Main St, Chillicothe OH 45601" and "123 Main St Chillicothe OH". Returns empty strings when unsure.
+ */
+const US_STATES = new Set("AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC".split(" "));
+
+export function parseCityState(address: string): { city: string; state: string } {
+  const a = address.replace(/\s+/g, " ").trim().replace(/,?\s*(USA|United States|US)\.?$/i, "");
+  const m = a.match(/^(.*?)[,\s]+([A-Za-z]{2})\.?,?(?:\s+\d{5}(?:-\d{4})?)?$/);
+  if (!m || !US_STATES.has(m[2].toUpperCase())) return { city: "", state: "" };
+  const state = m[2].toUpperCase();
+  const before = m[1].replace(/,\s*$/, "");
+  const parts = before.split(",").map((x) => x.trim()).filter(Boolean);
+  let cityPart = parts[parts.length - 1] ?? "";
+  // No comma before the city: drop the street part (numbers, street words) and keep what follows.
+  if (parts.length === 1 || /\d/.test(cityPart)) {
+    const words = cityPart.split(" ");
+    let cut = -1;
+    words.forEach((w, i) => { if (/\d/.test(w) || STREET_WORDS.test(w)) cut = i; });
+    cityPart = words.slice(cut + 1).join(" ").trim();
+  }
+  return { city: cityPart.replace(/[.,]+$/, ""), state };
 }
 
 declare global { var __msmStore: Store | undefined }
@@ -164,6 +184,22 @@ async function runStep(r: Report, step: number): Promise<void> {
           r.keywords = opts;
           log(r, `OpenAI listed ${ai.services.length} service lines and suggested ${opts.length} keywords`);
         } else log(r, "OpenAI did not return keywords, generic list kept for you to edit");
+        // Nearby cities for checkpoint 1: home plus suggestions with 50,000+ people within about 20 miles.
+        const home = r.cities.find((c) => c.home) ?? r.cities[0];
+        if (home && home.name && home.state) {
+          const near = await nearbyCities(r.intake.address, home.name, home.state);
+          if (near) {
+            const rest = r.cities.filter((c) => !c.home && cityKey(c) !== cityKey(home));
+            const fresh = near.cities.filter((c) => !rest.some((x) => cityKey(x) === cityKey(c)));
+            let picked = rest.filter((c) => c.selected).length;
+            r.cities = [
+              { ...home, population: home.population || near.homePopulation, selected: true },
+              ...rest,
+              ...fresh.map((c) => ({ ...c, selected: picked++ < 2 })),
+            ];
+            log(r, `OpenAI suggested ${fresh.length} nearby cities for the rank checks; confirm them at checkpoint 1`);
+          } else log(r, "OpenAI did not return nearby cities; add two at checkpoint 1");
+        }
       }
       return;
     }
@@ -359,23 +395,14 @@ export async function createReport(intake: Intake, ae: string, notify: NotifyCha
   const s = store();
   const id = String(s.nextId++);
   const v: Vertical = intake.vertical;
-  const home = intake.address.split(",").map((x) => x.trim());
-  let cities = VERTICAL_CITIES[v].map((c) => ({ ...c }));
-  if (home.length >= 3) {
-    const cityName = home[home.length - 2];
-    const st = (home[home.length - 1].match(/[A-Z]{2}/) ?? [cities[0].state])[0];
-    const pool = STATE_CITIES[st];
-    if (pool) {
-      const homePop = pool.find(([n]) => n.toLowerCase() === cityName.toLowerCase())?.[1] ?? 50000 + (hashStr(cityName) % 150000);
-      const others = pool.filter(([n]) => n.toLowerCase() !== cityName.toLowerCase()).slice(0, 4);
-      cities = [
-        { name: cityName, state: st, population: homePop, distanceMiles: 0, home: true },
-        ...others.map(([n, p], i) => ({ name: n, state: st, population: p, distanceMiles: 8 + ((hashStr(cityName + n) % 15) + i * 3) })),
-      ];
-    } else {
-      cities[0] = { ...cities[0], name: cityName, state: st };
-    }
-  }
+  // The home city comes from the intake address only. Nearby cities are suggested in step 1 (OpenAI) and can be
+  // added by hand at checkpoint 1. No built-in city list is used, so a wrong address shows up here, not in the report.
+  const parsed = parseCityState(intake.address);
+  const cityName = parsed.city || (intake.address.split(",").map((x) => x.trim()).filter((x) => x && !/\d/.test(x)).pop() ?? "");
+  const st = parsed.state;
+  const pool = st ? STATE_CITIES[st] ?? [] : [];
+  const homePop = pool.find(([n]) => n.toLowerCase() === cityName.toLowerCase())?.[1] ?? 0;
+  const cities: Omit<CityOption, "selected">[] = [{ name: cityName || "Home city", state: st, population: homePop, distanceMiles: 0, home: true }];
   // Nothing is invented. Every research value starts empty ("Not checked" / "Not run") and is filled only by a live source.
   const home0 = cities[0];
   const you = `${intake.company} (YOU)`;
@@ -386,7 +413,7 @@ export async function createReport(intake: Intake, ae: string, notify: NotifyCha
     delivery: { driveFolder: DRIVE_FOLDER, aeApproval: "not-sent", hubspot: "not-connected" },
     status: "running", currentStep: 1, nextStepLabel: "", startedAt: localIso(),
     wordpress: false, services: [],
-    cities: cities.map((c, i) => ({ ...c, selected: i < 3 })),
+    cities: cities.map((c) => ({ ...c, selected: true })),
     // Generic starting list for the vertical; OpenAI replaces it from the real site in step 1, and Dulmini edits it at checkpoint 1.
     keywords: VERTICAL_KEYWORDS[v].map((k) => ({ keyword: k, selected: true, source: "website" as const })),
     steps: STEP_TITLES.map((title, i) => ({ id: i + 1, title, state: "todo" as const, detail: "" })),
@@ -405,6 +432,7 @@ export async function createReport(intake: Intake, ae: string, notify: NotifyCha
     bottomLine: "", findings: [],
   };
   void home0;
+  if (!parsed.city || !parsed.state) log(r, `Could not read the city and state from the address "${intake.address}". Check the home city at checkpoint 1.`);
   s.reports.set(id, r);
   s.meta.set(id, { profile: "mixed", lastStepAt: Date.now(), busy: false });
   syncSteps(r);
@@ -412,10 +440,23 @@ export async function createReport(intake: Intake, ae: string, notify: NotifyCha
   return r;
 }
 
+const cityKey = (c: { name: string; state: string }) => `${c.name}, ${c.state}`.toLowerCase();
+
 export async function approveKeywords(id: string, cityKeys: string[], keywords: string[]): Promise<Report | undefined> {
   const r = await getReport(id); if (!r) return;
   const m = store().meta.get(id)!;
-  r.cities = r.cities.map((c) => ({ ...c, selected: cityKeys.includes(`${c.name}, ${c.state}`) }));
+  const wanted = cityKeys.map((k) => k.trim()).filter(Boolean);
+  const known = new Set(r.cities.map(cityKey));
+  const cities = r.cities.map((c) => ({ ...c, selected: wanted.some((k) => k.toLowerCase() === cityKey(c)) }));
+  // Cities typed in at checkpoint 1 ("Name, ST"). Population and distance are unknown, shown as "-".
+  for (const k of wanted) {
+    const mm = k.match(/^(.+?),\s*([A-Za-z]{2})$/);
+    const name = (mm ? mm[1] : k).trim(); const state = (mm ? mm[2] : r.cities[0]?.state ?? "").toUpperCase();
+    if (!name || known.has(cityKey({ name, state }))) continue;
+    known.add(cityKey({ name, state }));
+    cities.push({ name, state, population: 0, distanceMiles: -1, selected: true });
+  }
+  r.cities = cities;
   const existing = new Set(r.keywords.map((k) => k.keyword));
   const opts: KeywordOption[] = r.keywords.map((k) => ({ ...k, selected: keywords.includes(k.keyword) }));
   for (const k of keywords) if (!existing.has(k)) opts.push({ keyword: k, selected: true, source: "added" });
@@ -434,11 +475,38 @@ export async function approveKeywords(id: string, cityKeys: string[], keywords: 
   return r;
 }
 
-export async function pickCompetitors(id: string, ids: string[]): Promise<Report | undefined> {
+export async function pickCompetitors(id: string, ids: string[], added: { name: string; website: string }[] = []): Promise<Report | undefined> {
   const r = await getReport(id); if (!r) return;
   r.competitors = r.competitors.map((c) => ({ ...c, selected: ids.includes(c.id) }));
+  // Competitors the reviewer typed in. Positions come from the searches already done; reviews are read in step 9.
+  const searches = (r.jobId ? getJob(r.jobId) : undefined)?.result?.searches ?? [];
+  const keywords = r.keywords.filter((k) => k.selected).map((k) => k.keyword);
+  const cities = r.cities.filter((c) => c.selected);
+  let n = r.competitors.filter((c) => c.added).length;
+  for (const a of added) {
+    const name = a.name.trim(); const website = a.website.trim() ? domainOf(a.website.trim()) : "";
+    if (!name) continue;
+    if (r.competitors.some((c) => c.name.toLowerCase() === name.toLowerCase() || (website && c.website === website))) {
+      r.competitors = r.competitors.map((c) => (c.name.toLowerCase() === name.toLowerCase() || (website && c.website === website) ? { ...c, selected: true } : c));
+      continue;
+    }
+    const cid = `${r.id}-m${++n}`;
+    let beats = 0;
+    const grid: Record<string, (number | null | undefined)[]> = {};
+    for (const k of keywords) grid[k] = cities.map((city) => {
+      const s = searches.find((x) => x.keyword === k && x.city === city.name);
+      if (!s) return undefined;
+      const hit = website ? s.results.find((x) => x.domain === website || x.domain.endsWith("." + website)) : undefined;
+      if (hit && hit.position < (s.clientPosition ?? 99)) beats++;
+      return hit ? hit.position : null;
+    });
+    r.competitors.push({ id: cid, name, beats, distanceMiles: 0, overlapPct: 0, rating: 0, reviews: 0, website, verified: "verified", selected: true, dataKnown: false, added: true });
+    r.competitorRanks[cid] = grid;
+    if (!r.reviews.some((x) => x.who === name)) r.reviews.push({ who: name, platform: "Google", rating: null, reviews: null, note: "Not checked yet" });
+  }
+  const chosen = r.competitors.filter((c) => c.selected).length;
   r.provenance[8] = "live";
-  log(r, `${ids.length} competitors confirmed by Dulmini`);
+  log(r, `${chosen} competitors confirmed by Dulmini${added.length ? ` (${added.length} typed in)` : ""}`);
   startRunning(r, 9);
   save(r);
   return r;

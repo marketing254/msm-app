@@ -10,6 +10,9 @@ export function KeywordsForm({ report: r }: { report: Report }) {
   const [keywords, setKeywords] = useState<Set<string>>(new Set(r.keywords.filter((k) => k.selected).map((k) => k.keyword)));
   const [custom, setCustom] = useState<string[]>([]);
   const [draft, setDraft] = useState("");
+  const [customCities, setCustomCities] = useState<string[]>([]);
+  const [cityDraft, setCityDraft] = useState("");
+  const homeState = r.cities.find((c) => c.home)?.state ?? r.cities[0]?.state ?? "";
 
   const toggleCity = (key: string) => setCities((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
   const toggleKw = (key: string) => setKeywords((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
@@ -17,6 +20,17 @@ export function KeywordsForm({ report: r }: { report: Report }) {
     const k = draft.trim();
     if (!k || keywords.has(k) || custom.includes(k)) { setDraft(""); return; }
     setCustom((c) => [...c, k]); setKeywords((s) => new Set(s).add(k)); setDraft("");
+  };
+  const addCity = () => {
+    const raw = cityDraft.trim().replace(/\s+/g, " ");
+    if (!raw) return;
+    const m = raw.match(/^(.+?),?\s+([A-Za-z]{2})$/);
+    const key = m ? `${m[1].replace(/,$/, "").trim()}, ${m[2].toUpperCase()}` : `${raw}, ${homeState}`;
+    const known = r.cities.find((c) => `${c.name}, ${c.state}`.toLowerCase() === key.toLowerCase());
+    const finalKey = known ? `${known.name}, ${known.state}` : key;
+    if (!known && !customCities.some((c) => c.toLowerCase() === key.toLowerCase())) setCustomCities((c) => [...c, key]);
+    setCities((s) => new Set(s).add(finalKey));
+    setCityDraft("");
   };
 
   const cityOk = cities.size === 3;
@@ -42,14 +56,33 @@ export function KeywordsForm({ report: r }: { report: Report }) {
                     <tr key={key}>
                       <td style={{ width: 30 }}><input type="checkbox" checked={cities.has(key)} onChange={() => toggleCity(key)} aria-label={key} style={{ accentColor: "var(--navy)" }} /></td>
                       <td>{c.home ? <b>{key} (home)</b> : key}</td>
-                      <td className="num">{c.population.toLocaleString()}</td>
-                      <td className="num">{c.distanceMiles} mi</td>
+                      <td className="num">{c.population > 0 ? c.population.toLocaleString() : <span className="dim">-</span>}</td>
+                      <td className="num">{c.home ? "0 mi" : c.distanceMiles >= 0 ? `${c.distanceMiles} mi` : <span className="dim">-</span>}</td>
                     </tr>
                   );
                 })}
+                {customCities.map((key) => (
+                  <tr key={key}>
+                    <td style={{ width: 30 }}><input type="checkbox" checked={cities.has(key)} onChange={() => toggleCity(key)} aria-label={key} style={{ accentColor: "var(--navy)" }} /></td>
+                    <td>{key} <span className="note">(added)</span></td>
+                    <td className="num"><span className="dim">-</span></td>
+                    <td className="num"><span className="dim">-</span></td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
+          <div className="field" style={{ marginTop: 12 }}>
+            <label htmlFor="custom-city">Add a city</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input id="custom-city" className="input" value={cityDraft} onChange={(e) => setCityDraft(e.target.value)} placeholder={`City, ${homeState || "ST"}`}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCity(); } }} />
+              <button type="button" className="btn quiet" onClick={addCity}>Add</button>
+            </div>
+          </div>
+          <p className="note" style={{ marginTop: 8 }}>
+            Home city is read from the intake address. Nearby cities are suggestions; check them and add your own if needed.
+          </p>
           <p className="note" style={{ marginTop: 8 }}>
             Website: {r.wordpress ? "WordPress detected." : "Not WordPress."}{r.legacySite ? ` Legacy site still live: ${r.legacySite.replace(/^https?:\/\//, "")} (will be flagged in the report).` : ""}
           </p>

@@ -137,7 +137,7 @@ export async function buildWorkbook(r: Report, draft = false): Promise<Buffer> {
     cities.forEach((c, i) => {
       const onP1 = s.keywords.filter((k) => r.ranks[k]?.[i] != null).length;
       const cell = ws.getCell(row, 2 + i * 2);
-      cell.value = `${c.name.toUpperCase()} · pop ${c.population.toLocaleString()}\n${onP1} / ${s.keywords.length} on page 1`;
+      cell.value = `${c.name.toUpperCase()}${c.population > 0 ? ` · pop ${c.population.toLocaleString()}` : ""}\n${onP1} / ${s.keywords.length} on page 1`;
       cell.font = { bold: true, size: 10, color: { argb: NAVY } }; cell.alignment = { wrapText: true, vertical: "middle" };
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: SOFT } }; ws.mergeCells(row, 2 + i * 2, row, 3 + i * 2);
     });

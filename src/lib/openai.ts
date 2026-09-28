@@ -41,6 +41,23 @@ export async function servicesAndKeywords(company: string, vertical: Vertical, p
   );
 }
 
+export interface NearbyCity { name: string; state: string; population: number; distanceMiles: number }
+
+/** Nearby cities for the rank checks: the report's rule is 50,000+ people within about 20 miles of the practice. */
+export async function nearbyCities(address: string, homeCity: string, state: string): Promise<{ homePopulation: number; cities: NearbyCity[] } | null> {
+  const out = await ask<{ homePopulation: number; cities: NearbyCity[] }>(
+    "You know US geography and city populations. Give real, current figures; never invent a city.",
+    `Practice address: ${address}\nHome city: ${homeCity}, ${state}\n\nGive the home city's population, then up to 5 other cities or large suburbs with 50,000+ people within about 20 miles of the address, nearest first. If fewer than 2 qualify, add the nearest towns with 15,000+ people so the list has at least 3, and give their real distance. Use the two-letter state code. Distance in miles from the address, population as a whole number.`,
+    `{"homePopulation":123456,"cities":[{"name":"...","state":"XX","population":123456,"distanceMiles":8.5}]}`,
+  );
+  if (!out || !Array.isArray(out.cities)) return null;
+  const cities = out.cities
+    .filter((c) => c && typeof c.name === "string" && c.name.trim() && c.name.trim().toLowerCase() !== homeCity.trim().toLowerCase())
+    .map((c) => ({ name: c.name.trim(), state: String(c.state || state).toUpperCase().slice(0, 2), population: Math.round(Number(c.population) || 0), distanceMiles: Math.round((Number(c.distanceMiles) || 0) * 10) / 10 }))
+    .slice(0, 5);
+  return { homePopulation: Math.round(Number(out.homePopulation) || 0), cities };
+}
+
 /** Reads the text of a Google AI Mode page and says whether the practice is named and who is. */
 export async function aiModeNames(clientName: string, clientDomain: string, keyword: string, text: string): Promise<{ shows: boolean; others: string[] } | null> {
   if (!text.trim()) return null;

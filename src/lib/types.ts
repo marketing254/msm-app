@@ -96,6 +96,8 @@ export interface Competitor {
   website: string;
   verified: "verified" | "manual" | "low-overlap";
   selected: boolean;
+  /** true when the reviewer typed this competitor in at checkpoint 2 */
+  added?: boolean;
 }
 
 export interface Listing {

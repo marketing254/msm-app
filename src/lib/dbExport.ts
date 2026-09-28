@@ -45,7 +45,7 @@ export function reportDataRows(r: Report): ExcelJS.CellValue[][] {
   add("site", "wordpress", r.wordpress ? "Yes" : "No");
   if (r.legacySite) add("site", "legacy_site", "Still live", r.legacySite);
   for (const s of r.services) add("site", "service", s);
-  for (const c of r.cities) add("city", `${c.name}, ${c.state}`, `${c.selected ? "Yes" : "No"}${c.home ? " (home)" : ""} | pop ${c.population.toLocaleString()} | ${c.distanceMiles} mi`);
+  for (const c of r.cities) add("city", `${c.name}, ${c.state}`, `${c.selected ? "Yes" : "No"}${c.home ? " (home)" : ""} | pop ${c.population > 0 ? c.population.toLocaleString() : "-"} | ${c.distanceMiles >= 0 ? `${c.distanceMiles} mi` : "- mi"}`);
   for (const k of r.keywords) add("keyword", k.keyword, k.selected ? "Approved" : "Not selected");
   for (const k of r.keywords.filter((x) => x.selected)) cities.forEach((c, i) => { const v = r.ranks[k.keyword]?.[i]; add("rank", `${k.keyword} | ${c.name}`, v == null ? "Not on page 1" : `#${v}`); });
   for (const c of r.competitors) add("competitor", c.name, `${c.selected ? "Chosen" : "Not chosen"} | beats ${c.beats} | ${c.distanceMiles} mi | overlap ${c.overlapPct}% | Google ${c.rating} (${c.reviews}) | ${c.verified}`, c.website ? `https://${c.website}` : "");
