@@ -334,6 +334,11 @@ export async function advance(id: string): Promise<Report | undefined> {
   m.busy = true;
   try {
     const step = r.currentStep;
+    if (step === 3 && !has.worker()) {
+      r.provenance[3] = "not run"; r.status = "waiting";
+      log(r, "Rank worker is not configured (WORKER_TOKEN missing or MSM_DISABLE_LIVE set). Research paused at step 3.");
+      syncSteps(r); save(r); return r;
+    }
     // Steps 3 and 9 are done by the browser worker on a PC. Hand it a job and wait here until it reports back.
     if ((step === 3 || step === 9) && has.worker()) {
       const isRank = step === 3;
@@ -352,6 +357,14 @@ export async function advance(id: string): Promise<Report | undefined> {
       if (job.status === "pending" || job.status === "running" || job.status === "captcha") {
         if (Date.now() - job.createdAt > JOB_TIMEOUT_MS && !workerOnline().online) updateJob(job.id, { status: "failed", message: "The worker did not respond in time" });
         else { syncSteps(r); return r; }
+      }
+      if (job.status === "failed" && isRank) {
+        // Everything after step 3 builds on the searches. Stop here instead of spending OpenAI calls on empty data;
+        // the report page shows "Run rank checks again".
+        r.provenance[3] = "not run";
+        r.status = "waiting"; r.currentStep = 3;
+        log(r, `Rank checks did not run: ${job.message}. Research paused. Fix the cause and click Run rank checks again.`);
+        syncSteps(r); save(r); return r;
       }
       if (job.status === "failed") { r.provenance[step] = "not run"; log(r, `Worker failed on step ${step}: ${job.message}. Website values stay empty.`); }
       else if (job.status === "done" && job.result && isRank) {
@@ -580,6 +593,30 @@ export async function approveReport(id: string, bottomLine: string, findings: Fi
   }
 
   log(r, r.notify.includes("Slack") && has.slack() ? `Link posted to Slack for ${r.ae}` : `Link for ${r.ae} shown on screen (Slack not connected)`);
+  save(r);
+  return r;
+}
+
+/**
+ * Runs the worker part again from step 3 for the same report: a new rank job, listings, reviews, competitors and
+ * AI Mode cleared. Keywords, cities, PageSpeed and Copyscape are kept (Copyscape pages are cached, so no credits are spent again).
+ */
+export async function rerunRanks(id: string, by = "Dulmini"): Promise<Report | undefined> {
+  const r = await getReport(id); if (!r || r.status === "sent") return r;
+  const keywords = r.keywords.filter((k) => k.selected).map((k) => k.keyword);
+  const cityCount = r.cities.filter((c) => c.selected).length;
+  r.jobId = undefined; r.competitorJobId = undefined;
+  r.ranks = Object.fromEntries(keywords.map((k) => [k, Array.from({ length: cityCount }, () => undefined)]));
+  r.competitors = r.competitors.filter((c) => c.added).map((c) => ({ ...c, selected: false, beats: 0 }));
+  r.competitorRanks = {};
+  r.listings = r.listings.map((l) => l.match === "not-applicable" ? l : { ...l, name: null, address: null, phone: null, url: null, match: "not-checked", reason: undefined, confirmed: false });
+  r.reviews = r.reviews.filter((x) => x.who.endsWith("(YOU)")).map((x) => ({ ...x, rating: null, reviews: null, note: "Not checked" }));
+  r.aiMode = keywords.map((k) => ({ keyword: k, shows: false, others: [], checked: false }));
+  r.platformRatings = undefined;
+  for (const step of [3, 6, 7, 8, 9, 10, 11]) delete r.provenance[step];
+  r.bottomLine = ""; r.findings = [];
+  log(r, `Rank checks started again by ${by}`);
+  startRunning(r, 3);
   save(r);
   return r;
 }

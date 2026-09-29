@@ -98,12 +98,30 @@ export async function approveReport(formData: FormData) {
   redirect(`/reports/${id}?approved=1`);
 }
 
+/** Settings: run the connection checks again now instead of showing the 10-minute cached result. */
+export async function recheckConnections() {
+  const { checkAll } = await import("@/lib/health");
+  await checkAll(true);
+  revalidatePath("/settings");
+  redirect("/settings");
+}
+
 /** Admin action on Settings: lifts a Copyscape pause after the cause is fixed. */
 export async function resetCopyscape() {
   const { guard } = await import("@/lib/guard");
   guard.copyscape.reset();
   revalidatePath("/settings");
   redirect("/settings");
+}
+
+/** Report page: run the worker part again from step 3 (after a captcha timeout, a block, or the worker being off). */
+export async function rerunRanks(formData: FormData) {
+  const id = String(formData.get("id"));
+  const session = await getSession();
+  await store.rerunRanks(id, session?.name ?? "reviewer");
+  await flushed(id);
+  revalidatePath("/reports");
+  redirect(`/reports/${id}`);
 }
 
 export async function sendBack(formData: FormData) {

@@ -429,7 +429,7 @@ export function stepDetail(r: Report, stepId: number): string {
   switch (stepId) {
     case 1: return r.wordpress ? "WordPress detected" + (r.legacySite ? ", legacy site found" : "") : "Not WordPress";
     case 2: return `${selKw.length} keywords, ${selCities} cities`;
-    case 3: return r.provenance[3] === "not run" ? "Not run, sample positions kept" : `${onP1} / ${total} on page 1`;
+    case 3: return r.provenance[3] === "not run" ? "Not run, positions show as -" : `${onP1} / ${total} on page 1`;
     case 4: return r.provenance[4] === "not run" ? "Not run" : "4 runs, scores saved";
     case 5: return r.provenance[5] === "not run" ? (r.copyscape[0]?.finding.replace(/^Not run: /, "Not run: ") ?? "Not run") : over ? `${over} page${over === 1 ? "" : "s"} over 5%` : "All pages under 5%";
     case 6: {
@@ -439,7 +439,7 @@ export function stepDetail(r: Report, stepId: number): string {
     }
     case 7: return r.reviews.some((x) => x.rating != null || x.reviews != null) ? "Client and competitors" : "Not checked";
     case 8: return picked ? `${picked} competitors chosen` : r.competitors.length ? "Pick 2 to 4" : "None found";
-    case 9: return picked ? `${picked * total} positions pulled` : "";
+    case 9: return r.provenance[9] === "not run" ? "Not run" : picked ? `${picked} competitors, positions from the searches` : "";
     case 10: return r.provenance[10] === "live" ? `${r.aiMode.filter((a) => a.shows).length} / ${r.aiMode.length} keywords name the practice` : "Not checked";
     case 11: return `${r.findings.length} findings drafted`;
     case 12: return r.status === "sent" ? "Google Sheet, 6 tabs" : "Created on approval";
@@ -531,6 +531,7 @@ export function nextStepLabel(r: Report): string {
   if (r.status === "waiting" && cp) {
     return cp === 1 ? "Checkpoint 1: keywords and cities" : cp === 2 ? "Checkpoint 2: pick competitors" : "Checkpoint 3: listings and AI Mode";
   }
+  if (r.status === "waiting" && r.currentStep === 3) return "Rank checks did not run: run them again";
   return `Step ${r.currentStep} of 12: ${STEP_TITLES[r.currentStep - 1].toLowerCase()}`;
 }
 

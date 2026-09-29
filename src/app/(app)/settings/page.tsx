@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import { allowedUsers, ROLE_DESCRIPTION } from "@/lib/auth";
 import { DRIVE_FOLDER } from "@/lib/data";
-import { authMode, checkAll, liveDisabled, serviceAccount, signedInAs } from "@/lib/health";
+import { authMode, checkAll, checkedMinutesAgo, liveDisabled, serviceAccount, signedInAs } from "@/lib/health";
 import { guard } from "@/lib/guard";
 import { env } from "@/lib/env";
-import { resetCopyscape } from "@/app/actions";
+import { recheckConnections, resetCopyscape } from "@/app/actions";
 
 export const metadata: Metadata = { title: "Settings" };
 export const dynamic = "force-dynamic";
@@ -14,6 +14,7 @@ export default async function SettingsPage() {
   const sa = serviceAccount();
   const userEmail = authMode() === "user" ? await signedInAs() : "";
   const cs = guard.copyscape.status();
+  const agoMin = checkedMinutesAgo();
 
   return (
     <>
@@ -24,7 +25,10 @@ export default async function SettingsPage() {
       {liveDisabled() && <div className="banner waiting">Live connections are switched off (MSM_DISABLE_LIVE=1). Every step reports &ldquo;not run&rdquo;.</div>}
 
       <div className="card">
-        <h3>Connections <span className="note">checked live when this page opens</span></h3>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <h3 style={{ margin: 0 }}>Connections <span className="note">{agoMin < 1 ? "checked just now" : `checked ${agoMin} min ago`}; the worker row is always current</span></h3>
+          <form action={recheckConnections}><button className="btn quiet" type="submit">Check again</button></form>
+        </div>
         <div className="table-wrap">
           <table>
             <thead><tr><th>Connection</th><th>Used for</th><th>Status</th><th>Detail</th></tr></thead>

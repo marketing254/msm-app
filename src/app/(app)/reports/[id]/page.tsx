@@ -7,6 +7,7 @@ import { getReport, reportHref, reportJob } from "@/lib/store";
 import { CHECKPOINTS } from "@/lib/data";
 import { ReportHeader, StatusPill, formatDate } from "@/components/ui";
 import { AutoRefresh } from "@/components/AutoRefresh";
+import { rerunRanks } from "@/app/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -56,11 +57,18 @@ export default async function ReportPage({ params, searchParams }: { params: Pro
       {r.status === "running" && job && job.status === "captcha" && (
         <div className="banner waiting">Google is showing a captcha on the worker PC. Open the worker&rsquo;s browser window, tick the box, and the searches continue on their own.</div>
       )}
-      {r.status === "running" && job && job.status !== "captcha" && job.status !== "done" && (
+      {r.status === "running" && job && job.status !== "captcha" && job.status !== "done" && job.status !== "failed" && (
         <div className="banner running">Rank checks are running in the browser worker: {job.message}. About 15 seconds per search.</div>
       )}
-      {r.status === "running" && !(job && job.status !== "done") && (
+      {r.status === "running" && !(job && job.status !== "done" && job.status !== "failed") && (
         <div className="banner running">Research is running. This page updates on its own; you can leave and come back.</div>
+      )}
+      {r.status !== "sent" && (r.provenance[3] === "not run" || job?.status === "failed") && (
+        <div className="banner waiting">
+          Rank checks did not run{job?.status === "failed" ? `: ${job.message}` : ""}. Research is paused here so nothing is built on empty data.
+          Make sure the worker is Online on Settings, then run them again for this report.
+          <form action={rerunRanks}><input type="hidden" name="id" value={r.id} /><button className="btn primary" type="submit">Run rank checks again</button></form>
+        </div>
       )}
 
       <div className="progress"><i style={{ width: `${pct}%` }} /></div>

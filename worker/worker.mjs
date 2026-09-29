@@ -68,9 +68,9 @@ async function captchaGate(page, jobId, what) {
   }
   if (blockedFor) { log("403 cleared, continuing."); await report(jobId, "running", `Continuing ${what}`); }
   while (page.url().includes("/sorry/") || (await page.locator("text=unusual traffic").first().isVisible().catch(() => false))) {
-    if (waited === 0) { log("CAPTCHA shown. Tick the box in the browser window."); await report(jobId, "captcha", `Google is asking for a captcha during ${what}. Tick it in the worker window.`); }
+    if (waited === 0) { log("CAPTCHA shown. Tick the box in the browser window."); await report(jobId, "captcha", `Google is asking for a captcha during ${what}. Tick it in the Chrome window on the worker laptop.`); }
     await sleep(5000); waited += 5;
-    if (waited > 600) throw new Error("Captcha not solved within 10 minutes");
+    if (waited > 1800) throw new Error("Captcha not ticked within 30 minutes. Someone needs to tick it in the Chrome window on the worker laptop; then click Run rank checks again on the report page.");
   }
   if (waited) { log("Captcha cleared, continuing."); await report(jobId, "running", `Continuing ${what}`); await sleep(3000); }
 }
