@@ -81,7 +81,9 @@ The service account can create files only in a Shared Drive. If the MSM Reports 
 1. Move the folder to a Shared Drive (Google Workspace) and add the service account as Content manager. Nothing else changes.
 2. Or let the app act as a real Google account: run `node scripts/google-oauth.mjs <client id> <client secret>` once (the script explains where the client id comes from), sign in with the account that owns the folder, and paste the three printed lines into `.env.local`. Report Sheets are then created by that account. Settings shows "signed in as <email>".
 
-If the OAuth consent screen is left in "Testing" status, Google expires the sign-in after 7 days; set it to "In production" (no verification is needed for the team's own use) or use a Workspace "Internal" app.
+The MSM Database sheet (users, reports, log, State) always uses the service account when `GOOGLE_SERVICE_ACCOUNT_JSON` is set, because it never expires. The Google account sign-in is used only to create the report Sheets. If it expires, reports still run and save; approval falls back to the Excel download until the sign-in is renewed.
+
+If the OAuth consent screen is left in "Testing" status, Google expires the sign-in after 7 days; set it to "In production" (one click, no verification form needed for the team's own use) or use a Workspace "Internal" app.
 
 ## Copyscape spending guard
 

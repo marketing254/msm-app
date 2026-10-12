@@ -9,32 +9,43 @@ import type { Session } from "./auth";
  */
 
 type AnyAuth = InstanceType<typeof google.auth.GoogleAuth> | InstanceType<typeof google.auth.OAuth2>;
-let cachedAuth: AnyAuth | null = null;
+let cachedUser: InstanceType<typeof google.auth.OAuth2> | null = null;
+let cachedService: InstanceType<typeof google.auth.GoogleAuth> | null = null;
 
-/**
- * Two ways to sign in, picked automatically:
- * 1. A real Google account (OAuth refresh token): files are owned by that person, so a normal My Drive folder works.
- * 2. The service account: works with Shared Drives only, because a service account cannot own files in My Drive.
- */
-function auth(): AnyAuth {
-  if (!has.google()) throw new Error("Google is not configured");
-  if (!cachedAuth) {
-    if (has.googleUser()) {
-      const o = new google.auth.OAuth2(env.oauthClientId, env.oauthClientSecret);
-      o.setCredentials({ refresh_token: env.oauthRefreshToken });
-      cachedAuth = o;
-    } else {
-      cachedAuth = new google.auth.GoogleAuth({
-        credentials: JSON.parse(env.serviceAccountJson),
-        scopes: ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"],
-      });
-    }
+function hasServiceAccount(): boolean { return !!env.serviceAccountJson; }
+
+/** The service account: never expires. Used for everything on the MSM Database sheet (users, reports, log, State). */
+function serviceAuth(): AnyAuth {
+  if (!hasServiceAccount()) return userAuth();
+  if (!cachedService) {
+    cachedService = new google.auth.GoogleAuth({
+      credentials: JSON.parse(env.serviceAccountJson),
+      scopes: ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"],
+    });
   }
-  return cachedAuth;
+  return cachedService;
 }
 
+/**
+ * A real Google account (OAuth refresh token). Only needed to create the report Sheets, because a service account
+ * cannot own files in someone's My Drive. Falls back to the service account when no user sign-in is configured.
+ */
+function userAuth(): AnyAuth {
+  if (!has.google()) throw new Error("Google is not configured");
+  if (!has.googleUser()) return serviceAuth();
+  if (!cachedUser) {
+    cachedUser = new google.auth.OAuth2(env.oauthClientId, env.oauthClientSecret);
+    cachedUser.setCredentials({ refresh_token: env.oauthRefreshToken });
+  }
+  return cachedUser;
+}
+
+/** Which sign-in creates the report Sheets. The Database sheet always uses the service account when one is set. */
 export function authMode(): "user" | "service-account" | "none" {
   return has.googleUser() ? "user" : has.google() ? "service-account" : "none";
+}
+export function databaseAuthMode(): "user" | "service-account" | "none" {
+  return hasServiceAccount() ? "service-account" : authMode();
 }
 
 export function serviceAccountEmail(): string {
@@ -45,13 +56,15 @@ export function serviceAccountEmail(): string {
 export async function signedInAs(): Promise<string> {
   if (!has.googleUser()) return "";
   try {
-    const res = await google.oauth2({ version: "v2", auth: auth() }).userinfo.get();
+    const res = await google.oauth2({ version: "v2", auth: userAuth() }).userinfo.get();
     return res.data.email ?? "";
   } catch { return ""; }
 }
 
-function sheets(): sheets_v4.Sheets { return google.sheets({ version: "v4", auth: auth() }); }
-function drive(): drive_v3.Drive { return google.drive({ version: "v3", auth: auth() }); }
+/** Database sheet: service account (never expires). */
+function sheets(): sheets_v4.Sheets { return google.sheets({ version: "v4", auth: serviceAuth() }); }
+/** Report Sheets in the MSM Reports folder: the user sign-in when set. */
+function drive(): drive_v3.Drive { return google.drive({ version: "v3", auth: userAuth() }); }
 
 /* ---------------- MSM Database ---------------- */
 
@@ -210,9 +223,9 @@ export async function checkDatabase(): Promise<{ ok: boolean; detail: string }> 
     const missing = need.filter((t) => !tabs.includes(t));
     if (missing.length) return { ok: false, detail: `Sheet "${res.data.properties?.title}" opened but tabs missing: ${missing.join(", ")}` };
     const users = await readUsers();
-    return { ok: true, detail: `"${res.data.properties?.title}" with ${users.length} users` };
+    return { ok: true, detail: `"${res.data.properties?.title}" with ${users.length} users${databaseAuthMode() === "service-account" ? " (service account, does not expire)" : ""}` };
   } catch (e) {
-    return { ok: false, detail: friendly(e) };
+    return { ok: false, detail: friendly(e, databaseAuthMode()) };
   }
 }
 
@@ -230,11 +243,11 @@ export async function checkReportsFolder(): Promise<{ ok: boolean; detail: strin
   }
 }
 
-function friendly(e: unknown): string {
+function friendly(e: unknown, mode: "user" | "service-account" | "none" = authMode()): string {
   const msg = e instanceof Error ? e.message : String(e);
   if (/not found/i.test(msg)) return "Not found or not shared with the service account " + serviceAccountEmail();
   if (/permission|forbidden|403/i.test(msg)) return "No permission. Share it with " + serviceAccountEmail() + " as Editor";
-  if (/invalid_grant|unauthorized_client|invalid JWT/i.test(msg)) return authMode() === "user" ? "Google sign-in expired or revoked. Run scripts/google-oauth.mjs again." : "Service account key is not valid";
+  if (/invalid_grant|unauthorized_client|invalid JWT/i.test(msg)) return mode === "user" ? "Google sign-in expired or revoked. Run scripts/google-oauth.mjs again and update GOOGLE_OAUTH_REFRESH_TOKEN. Reports still save; only new report Sheets cannot be created until then." : "Service account key is not valid";
   if (/storage quota/i.test(msg)) return "Drive refused: a service account cannot own files in My Drive. Use a Shared Drive folder or connect a Google account (README).";
   return msg.slice(0, 200);
 }

@@ -27,6 +27,7 @@ export async function checkCopyscape(): Promise<{ ok: boolean; detail: string }>
     const value = tag(xml, "value"); const total = tag(xml, "total");
     const st = guard.copyscape.status();
     const extra = st.paused ? ` | PAUSED: ${st.paused}` : st.switchedOff ? " | switched off for testing" : ` | used today ${st.usedToday} of ${st.limit} pages`;
+    if (value && Number(value) <= 0) return { ok: false, detail: `No Copyscape credits left (balance ${value}). Top up at copyscape.com; reports say "Not run" for Copyscape until then` + extra };
     return { ok: !st.paused, detail: (value ? `Balance ${value} credits, about ${total ?? "?"} pages` : "Key accepted") + extra };
   } catch (e) { return { ok: false, detail: e instanceof Error ? e.message : String(e) }; }
 }
