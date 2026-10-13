@@ -124,6 +124,14 @@ export async function rerunRanks(formData: FormData) {
   redirect(`/reports/${id}`);
 }
 
+/** Checkpoint 3: read the captured AI Mode answers again. */
+export async function readAiMode(formData: FormData) {
+  const id = String(formData.get("id"));
+  await store.readAiMode(id);
+  await flushed(id);
+  redirect(`/reports/${id}/listings`);
+}
+
 export async function sendBack(formData: FormData) {
   const id = String(formData.get("id"));
   await store.sendBack(id);

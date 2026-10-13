@@ -61,11 +61,18 @@ export async function nearbyCities(address: string, homeCity: string, state: str
 /** Reads the text of a Google AI Mode page and says whether the practice is named and who is. */
 export async function aiModeNames(clientName: string, clientDomain: string, keyword: string, text: string): Promise<{ shows: boolean; others: string[] } | null> {
   if (!text.trim()) return null;
-  return ask(
+  const out = await ask<{ shows: boolean; others: string[] }>(
     "You read the text of a Google AI Mode answer for a local search and list the business names it recommends.",
-    `Search: ${keyword}\nOur practice: ${clientName} (${clientDomain})\n\nPage text:\n${text.slice(0, 5000)}\n\nDoes the answer name our practice? List up to 4 other businesses it names (exact names as written, no descriptions).`,
+    `Search: ${keyword}\nOur practice: ${clientName} (${clientDomain})\n\nPage text:\n${text.slice(0, 5000)}\n\nDoes the answer name our practice (any spelling of "${clientName}")? Set shows to true if it does. Then list up to 4 OTHER businesses it names, never our own practice (exact names as written, no descriptions).`,
     `{"shows":true|false,"others":["..."]}`,
   );
+  if (!out) return null;
+  // Belt and braces: if our own name slipped into the list, that counts as showing up.
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const me = norm(clientName);
+  const others = (Array.isArray(out.others) ? out.others : []).map(String).filter((o) => o.trim());
+  const mine = others.filter((o) => me && (norm(o).includes(me) || me.includes(norm(o))));
+  return { shows: Boolean(out.shows) || mine.length > 0, others: others.filter((o) => !mine.includes(o)).slice(0, 4) };
 }
 
 export interface ListingRead {

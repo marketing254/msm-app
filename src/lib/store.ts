@@ -377,7 +377,9 @@ export async function advance(id: string): Promise<Report | undefined> {
     catch (e) { r.provenance[step] = "not run"; r.lastError = e instanceof Error ? e.message : String(e); log(r, `${STEP_TITLES[step - 1]} failed: ${r.lastError.slice(0, 120)}`); }
     log(r, `${STEP_TITLES[step - 1]}: ${stepDetail(r, step) || "done"}${r.provenance[step] === "live" ? "" : r.provenance[step] === "not run" ? " (not run)" : " (sample)"}`);
     if (step >= 12) { r.status = "ready"; r.currentStep = 12; log(r, "Report ready to review"); }
-    else { r.currentStep = step + 1; if (CHECKPOINTS[r.currentStep]) r.status = "waiting"; }
+    // Step 10 is checkpoint 3: the AI Mode reading has to run first, then the report waits on that step for confirmation.
+    else if (step === 10) { r.status = "waiting"; }
+    else { r.currentStep = step + 1; if (CHECKPOINTS[r.currentStep] && r.currentStep !== 10) r.status = "waiting"; }
   } finally {
     m.busy = false; m.lastStepAt = Date.now();
   }
@@ -617,6 +619,16 @@ export async function rerunRanks(id: string, by = "Dulmini"): Promise<Report | u
   r.bottomLine = ""; r.findings = [];
   log(r, `Rank checks started again by ${by}`);
   startRunning(r, 3);
+  save(r);
+  return r;
+}
+
+/** Checkpoint 3: read the AI Mode answers the worker captured (again). Used when the table is empty. */
+export async function readAiMode(id: string): Promise<Report | undefined> {
+  const r = await getReport(id); if (!r || !(r.status === "waiting" && r.currentStep === 10)) return r;
+  try { await runStep(r, 10); log(r, `AI Mode answers read: ${r.aiMode.filter((a) => a.shows || a.others.length).length} of ${r.aiMode.length} keywords had an answer`); }
+  catch (e) { r.provenance[10] = "not run"; log(r, `AI Mode reading failed: ${e instanceof Error ? e.message : String(e)}`.slice(0, 160)); }
+  syncSteps(r);
   save(r);
   return r;
 }
