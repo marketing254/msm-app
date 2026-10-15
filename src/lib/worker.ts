@@ -113,6 +113,12 @@ function cleanTitle(t: string): string {
 }
 
 /** Turns worker results into ranks, a competitor shortlist and their positions. */
+/** How many searches came back with readable results. Zero results means Google's page was not read, not "not on page 1". */
+export function readableSearches(res: RankJobResult): { read: number; total: number } {
+  const read = res.searches.filter((s) => !s.unread && s.results.length > 0).length;
+  return { read, total: res.searches.length };
+}
+
 export function ingest(r: Report, res: RankJobResult): { competitorsFound: number } {
   const keywords = r.keywords.filter((k) => k.selected).map((k) => k.keyword);
   const cities = r.cities.filter((c) => c.selected);
@@ -120,11 +126,14 @@ export function ingest(r: Report, res: RankJobResult): { competitorsFound: numbe
   const grid: RankGrid = {};
   const beats = new Map<string, { beats: number; title: string; url: string }>();
 
-  // Cities the worker did not search (test mode) stay undefined and show as "-".
-  const searchedCity = new Set(res.searches.map((s) => s.city));
-  const searchedKw = new Set(res.searches.map((s) => s.keyword));
-  for (const k of keywords) grid[k] = cities.map((c) => (searchedCity.has(c.name) && searchedKw.has(k) ? null : undefined));
-  for (const s of res.searches) {
+  // Only searches whose results were actually read count. Unread or unsearched cells stay undefined and show as "-".
+  const readable = res.searches.filter((s) => !s.unread && s.results.length > 0);
+  for (const k of keywords) grid[k] = cities.map(() => undefined);
+  for (const s of readable) {
+    const ki0 = keywords.indexOf(s.keyword); const ci0 = cities.findIndex((c) => c.name === s.city);
+    if (ki0 >= 0 && ci0 >= 0) grid[s.keyword][ci0] = null;
+  }
+  for (const s of readable) {
     const ki = keywords.indexOf(s.keyword); const ci = cities.findIndex((c) => c.name === s.city);
     if (ki < 0 || ci < 0) continue;
     grid[s.keyword][ci] = s.clientPosition;
@@ -156,7 +165,7 @@ export function ingest(r: Report, res: RankJobResult): { competitorsFound: numbe
   for (const c of r.competitors) {
     const g: RankGrid = {};
     for (const k of keywords) g[k] = cities.map((city) => {
-      const s = res.searches.find((x) => x.keyword === k && x.city === city.name);
+      const s = readable.find((x) => x.keyword === k && x.city === city.name);
       if (!s) return undefined;
       const hit = s.results.find((x) => x.domain === c.website || x.domain.endsWith("." + c.website));
       return hit ? hit.position : null;

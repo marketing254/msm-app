@@ -5,7 +5,7 @@ import {
 import { env, has } from "./env";
 import { inspectSite } from "./site";
 import { aiModeNames, nearbyCities, readGoogleReviews, readListing, servicesAndKeywords, writeFindings } from "./openai";
-import { createCompetitorJob, createJob, domainOf, getJob, ingest, JOB_TIMEOUT_MS, updateJob, workerOnline } from "./worker";
+import { createCompetitorJob, createJob, domainOf, getJob, ingest, JOB_TIMEOUT_MS, readableSearches, updateJob, workerOnline } from "./worker";
 import type { RankJob } from "./types";
 import { runPageSpeed } from "./pagespeed";
 import { runCopyscape } from "./copyscape";
@@ -368,9 +368,18 @@ export async function advance(id: string): Promise<Report | undefined> {
       }
       if (job.status === "failed") { r.provenance[step] = "not run"; log(r, `Worker failed on step ${step}: ${job.message}. Website values stay empty.`); }
       else if (job.status === "done" && job.result && isRank) {
+        const { read, total } = readableSearches(job.result);
+        // Fewer than half the searches readable: the positions would be mostly empty or wrong. Pause at step 3.
+        if (total === 0 || read * 2 < total) {
+          const note = job.result.searches.find((s) => s.unread && s.note)?.note ?? "";
+          r.provenance[3] = "not run"; r.status = "waiting"; r.currentStep = 3;
+          updateJob(job.id, { status: "failed", message: `Google results could be read for only ${read} of ${total} searches${note ? `. The page showed: ${note.slice(0, 120)}` : ""}` });
+          log(r, `Rank checks unusable: results read for ${read} of ${total} searches. Research paused. Click Run rank checks again.`);
+          syncSteps(r); save(r); return r;
+        }
         const { competitorsFound } = ingest(r, job.result);
         r.provenance[3] = "live";
-        log(r, `Rank worker finished on ${job.result.machine}: ${job.result.searches.length} searches, ${competitorsFound} competitors found`);
+        log(r, `Rank worker finished on ${job.result.machine}: results read for ${read} of ${total} searches, ${competitorsFound} competitors found`);
       }
     }
     try { await runStep(r, step); }
@@ -494,7 +503,7 @@ export async function pickCompetitors(id: string, ids: string[], added: { name: 
   const r = await getReport(id); if (!r) return;
   r.competitors = r.competitors.map((c) => ({ ...c, selected: ids.includes(c.id) }));
   // Competitors the reviewer typed in. Positions come from the searches already done; reviews are read in step 9.
-  const searches = (r.jobId ? getJob(r.jobId) : undefined)?.result?.searches ?? [];
+  const searches = ((r.jobId ? getJob(r.jobId) : undefined)?.result?.searches ?? []).filter((s) => !s.unread && s.results.length > 0);
   const keywords = r.keywords.filter((k) => k.selected).map((k) => k.keyword);
   const cities = r.cities.filter((c) => c.selected);
   let n = r.competitors.filter((c) => c.added).length;

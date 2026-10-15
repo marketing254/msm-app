@@ -71,7 +71,7 @@ export interface SearchResult { position: number; domain: string; title: string;
 
 export interface RankJobResult {
   /** one entry per keyword x city, in the order given */
-  searches: { keyword: string; city: string; results: SearchResult[]; clientPosition: number | null }[];
+  searches: { keyword: string; city: string; results: SearchResult[]; clientPosition: number | null; unread?: boolean; note?: string }[];
   /** AI Mode page text per keyword (home city) */
   aiMode: { keyword: string; text: string }[];
   /** page text per listing platform, plus the first matching link where one was found */

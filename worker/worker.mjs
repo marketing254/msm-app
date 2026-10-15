@@ -75,21 +75,65 @@ async function captchaGate(page, jobId, what) {
   if (waited) { log("Captcha cleared, continuing."); await report(jobId, "running", `Continuing ${what}`); await sleep(3000); }
 }
 
+/**
+ * Organic results on the current Google page, in order. Google changes its markup often, so this tries several
+ * patterns: result links with an <h3> title, links with a heading role, and Google's /url?q= redirect links.
+ */
+async function organicResults(page) {
+  return page.evaluate(() => {
+    const unwrap = (href) => {
+      try {
+        const u = new URL(href);
+        if (/google\./.test(u.hostname) && u.pathname === "/url") return u.searchParams.get("q") || u.searchParams.get("url") || "";
+        return href;
+      } catch { return ""; }
+    };
+    const root = document.querySelector("#rso") || document.querySelector("#search") || document.querySelector("[role=main]") || document.body;
+    const anchors = [...root.querySelectorAll("a[href]")];
+    const out = [];
+    for (const a of anchors) {
+      const titleEl = a.querySelector("h3, [role=heading]");
+      if (!titleEl) continue;
+      // Skip ads, the map pack and "People also ask" blocks.
+      if (a.closest("#tads, #tadsb, [data-text-ad], [aria-label='Ads'], .commercial-unit-desktop-top, g-scrolling-carousel, [jscontroller][data-initq]")) continue;
+      const href = unwrap(a.href);
+      if (!/^https?:/i.test(href)) continue;
+      out.push({ href, title: (titleEl.innerText || "").trim() });
+    }
+    return out;
+  });
+}
+
 async function search(page, jobId, keyword, city, state, clientDomain) {
-  // Same query a person types: keyword plus city and state. No extra parameters, which Google treats as an automation signal.
+  // Same query a person types: keyword plus city and state.
   const q = `${keyword} ${city} ${state}`;
   const url = `https://www.google.com/search?q=${encodeURIComponent(q)}`;
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
   await acceptConsent(page);
   await captchaGate(page, jobId, `"${q}"`);
-  await page.waitForSelector("#search", { timeout: 20000 }).catch(() => {});
-  const raw = await page.$$eval("#search a:has(h3)", (as) => as.map((a) => ({ href: a.href, title: a.querySelector("h3")?.innerText?.trim() ?? "" })));
+  await page.waitForSelector("#rso, #search, [role=main]", { timeout: 20000 }).catch(() => {});
+  await sleep(1500);
+  let raw = await organicResults(page);
+  // Nothing readable on the normal page (AI answer only, new layout): open Google's own "Web" tab, which lists only website results.
+  if (raw.length === 0) {
+    await page.goto(`https://www.google.com/search?q=${encodeURIComponent(q)}&udm=14`, { waitUntil: "domcontentloaded", timeout: 60000 }).catch(() => {});
+    await captchaGate(page, jobId, `"${q}" (web results)`);
+    await page.waitForSelector("#rso, #search, [role=main]", { timeout: 20000 }).catch(() => {});
+    await sleep(1500);
+    raw = await organicResults(page);
+  }
   const seen = new Set(); const results = [];
   for (const x of raw) {
     const d = domainOf(x.href);
     if (!d || d.includes("google.") || seen.has(d)) continue;
     seen.add(d); results.push({ position: results.length + 1, domain: d, title: x.title, url: x.href });
     if (results.length === 10) break;
+  }
+  if (results.length === 0) {
+    // Report what the page showed instead, so the app says "could not be read" rather than "Not on page 1".
+    const shown = await page.evaluate(() => `${document.title} | ${document.body.innerText.replace(/\s+/g, " ").slice(0, 200)}`).catch(() => "");
+    log(`  could not read results for "${q}": ${shown.slice(0, 120)}`);
+    return { keyword, city, results, clientPosition: null, unread: true, note: shown.slice(0, 300) };
   }
   const mine = results.find((x) => x.domain === clientDomain || x.domain.endsWith("." + clientDomain));
   return { keyword, city, results, clientPosition: mine ? mine.position : null };
@@ -191,7 +235,12 @@ async function runJob(job) {
       n++;
       const s = await search(page, job.id, k, c.name, c.state, job.clientDomain);
       searches.push(s);
-      log(`  ${n}/${total} ${k} | ${c.name}: ${s.clientPosition ? "#" + s.clientPosition : "not on page 1"}`);
+      log(`  ${n}/${total} ${k} | ${c.name}: ${s.unread ? "results could not be read" : s.clientPosition ? "#" + s.clientPosition : "not on page 1"}`);
+      // The first 3 searches all unreadable: Google is showing a page the worker cannot read. Stop instead of
+      // spending 30 searches, and say what the page showed.
+      if (n === 3 && searches.every((x) => x.unread)) {
+        throw new Error(`Google results could not be read on the first 3 searches. The page showed: ${(searches[2].note || "nothing").slice(0, 140)}`);
+      }
       await report(job.id, "running", `Search ${n} of ${total}: ${k} in ${c.name}`);
       await pause();
       if (n % 10 === 0 && n < total) { log("  short rest"); await sleep(30000); }
