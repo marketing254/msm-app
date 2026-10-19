@@ -91,7 +91,7 @@ export function pendingJobs(): RankJob[] {
   });
 }
 
-export function updateJob(id: string, patch: Partial<Pick<RankJob, "status" | "message" | "result">>): RankJob | undefined {
+export function updateJob(id: string, patch: Partial<Pick<RankJob, "status" | "message" | "result" | "debug">>): RankJob | undefined {
   const j = state().jobs.get(id); if (!j) return;
   Object.assign(j, patch, { updatedAt: Date.now() });
   persist(id, j);

@@ -10,7 +10,7 @@
 //   HEADLESS=0                             keep 0 so you can tick a captcha if Google asks
 
 import { chromium } from "playwright";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -88,20 +88,59 @@ async function organicResults(page) {
         return href;
       } catch { return ""; }
     };
-    const root = document.querySelector("#rso") || document.querySelector("#search") || document.querySelector("[role=main]") || document.body;
-    const anchors = [...root.querySelectorAll("a[href]")];
+    const isExternal = (href) => { try { const h = new URL(href).hostname; return /^https?:/i.test(href) && !/(^|\.)google\.|googleadservices|doubleclick|gstatic|youtube\.com\/redirect/.test(h); } catch { return false; } };
+    const root = document.querySelector("#rso") || document.querySelector("#search") || document.querySelector("#center_col") || document.querySelector("[role=main]") || document.body;
+    const ADS = "#tads, #tadsb, [data-text-ad], [aria-label='Ads'], [aria-label='Sponsored'], .commercial-unit-desktop-top, g-scrolling-carousel, [jscontroller][data-initq]";
+
+    // 1. Classic layout: each result is a link with an <h3> (or heading role) title.
     const out = [];
-    for (const a of anchors) {
+    for (const a of root.querySelectorAll("a[href]")) {
       const titleEl = a.querySelector("h3, [role=heading]");
-      if (!titleEl) continue;
-      // Skip ads, the map pack and "People also ask" blocks.
-      if (a.closest("#tads, #tadsb, [data-text-ad], [aria-label='Ads'], .commercial-unit-desktop-top, g-scrolling-carousel, [jscontroller][data-initq]")) continue;
+      if (!titleEl || a.closest(ADS)) continue;
       const href = unwrap(a.href);
-      if (!/^https?:/i.test(href)) continue;
-      out.push({ href, title: (titleEl.innerText || "").trim() });
+      if (!isExternal(href)) continue;
+      out.push({ href, title: (titleEl.innerText || "").trim(), method: "title" });
     }
-    return out;
+    if (out.length >= 3) return out;
+
+    // 2. Any layout: website links in page order, leaving out blocks that are not organic results
+    //    (AI Overview, ads, the map pack, People also ask, images, videos, related searches, navigation).
+    const SKIP = /^(AI Overview|AI Mode|Sponsored|Ads?\b|People also ask|People also search|Places|Businesses|Map|Locations|Images|Videos|Short videos|Top stories|Related searches|Things to know|Discussions and forums|Perspectives|What people are saying)/i;
+    const BUTTON = /^(Website|Directions|Call|Save|Share|More|Read more|Learn more|Book|Book online|Order|Menu|Reviews?)$/i;
+    const main = document.querySelector("#center_col") || document.querySelector("#rcnt") || document.querySelector("[role=main]") || document.body;
+    const skipped = (a) => {
+      if (a.closest(`header, footer, nav, [role=navigation], [role=banner], [role=contentinfo], ${ADS}`)) return true;
+      let el = a.parentElement;
+      for (let i = 0; el && el !== main && i < 14; i++, el = el.parentElement) {
+        const label = el.getAttribute("aria-label") || "";
+        if (SKIP.test(label)) return true;
+        const t = (el.innerText || "").trim();
+        if (t.length > 0 && t.length < 6000 && SKIP.test(t.slice(0, 40))) return true;
+      }
+      return false;
+    };
+    const generic = [];
+    for (const a of main.querySelectorAll("a[href]")) {
+      const href = unwrap(a.href);
+      if (!isExternal(href)) continue;
+      const text = (a.innerText || "").replace(/\s+/g, " ").trim();
+      if (text.length < 8 || BUTTON.test(text)) continue;
+      if (skipped(a)) continue;
+      generic.push({ href, title: text.split(/ (?:https?:\/\/|www\.|›)/)[0].slice(0, 120), method: "page order" });
+    }
+    return generic.length > out.length ? generic : out;
   });
+}
+
+/** What the page looked like, compactly, when no results could be read: headings, website links and the start of the text. */
+async function pageStructure(page) {
+  return page.evaluate(() => {
+    const heads = [...document.querySelectorAll("h1, h2, h3, [role=heading]")].map((h) => (h.innerText || "").replace(/\s+/g, " ").trim()).filter(Boolean).slice(0, 25);
+    const links = [...document.querySelectorAll("a[href]")].filter((a) => { try { return !/(^|\.)google\./.test(new URL(a.href).hostname); } catch { return false; } })
+      .slice(0, 25).map((a) => `${new URL(a.href).hostname} :: ${(a.innerText || "").replace(/\s+/g, " ").trim().slice(0, 60)} :: ${a.parentElement?.tagName ?? ""}`);
+    const ids = ["rso", "search", "center_col", "rcnt", "main", "botstuff"].filter((i) => document.getElementById(i));
+    return `url=${location.href.slice(0, 120)}\nids=${ids.join(",")} anchors=${document.querySelectorAll("a[href]").length} h3=${document.querySelectorAll("h3").length}\nHEADINGS: ${heads.join(" | ")}\nLINKS:\n${links.join("\n")}\nTEXT: ${document.body.innerText.replace(/\s+/g, " ").slice(0, 1500)}`;
+  }).catch((e) => `structure not readable: ${e.message}`);
 }
 
 async function search(page, jobId, keyword, city, state, clientDomain) {
@@ -132,9 +171,13 @@ async function search(page, jobId, keyword, city, state, clientDomain) {
   if (results.length === 0) {
     // Report what the page showed instead, so the app says "could not be read" rather than "Not on page 1".
     const shown = await page.evaluate(() => `${document.title} | ${document.body.innerText.replace(/\s+/g, " ").slice(0, 200)}`).catch(() => "");
+    const structure = await pageStructure(page);
+    // Keep a copy of the page on this PC for whoever fixes the reader.
+    try { mkdirSync(join(here, "debug"), { recursive: true }); writeFileSync(join(here, "debug", `${q.replace(/[^a-z0-9]+/gi, "-").slice(0, 60)}.html`), await page.content()); } catch { /* not essential */ }
     log(`  could not read results for "${q}": ${shown.slice(0, 120)}`);
-    return { keyword, city, results, clientPosition: null, unread: true, note: shown.slice(0, 300) };
+    return { keyword, city, results, clientPosition: null, unread: true, note: shown.slice(0, 300), debug: structure.slice(0, 5000) };
   }
+  log(`  read ${results.length} results (${raw[0]?.method ?? "?"})`);
   const mine = results.find((x) => x.domain === clientDomain || x.domain.endsWith("." + clientDomain));
   return { keyword, city, results, clientPosition: mine ? mine.position : null };
 }
@@ -259,7 +302,9 @@ async function runJob(job) {
     log(`Job ${job.id} done.`);
   } catch (e) {
     log(`Job ${job.id} failed: ${e.message}`);
-    await report(job.id, "failed", e.message.slice(0, 200));
+    // Send the page structure of the first unreadable search with the failure, so the reader can be fixed remotely.
+    const debug = searches.find((s) => s.debug)?.debug;
+    await api(`/api/worker/jobs/${job.id}`, { method: "POST", body: JSON.stringify({ status: "failed", message: e.message.slice(0, 200), debug }) }).catch((err) => log("report failed:", err.message));
   } finally {
     await ctx.close().catch(() => {});
   }

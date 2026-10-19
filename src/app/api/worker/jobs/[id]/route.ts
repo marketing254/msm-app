@@ -15,10 +15,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   heartbeat(req.headers.get("x-machine") ?? "worker");
   const { id } = await params;
   if (!getJob(id)) return Response.json({ error: "Job not found" }, { status: 404 });
-  const body = (await req.json().catch(() => ({}))) as { status?: RankJob["status"]; message?: string; result?: RankJobResult };
+  const body = (await req.json().catch(() => ({}))) as { status?: RankJob["status"]; message?: string; result?: RankJobResult; debug?: string };
   const allowed: RankJob["status"][] = ["running", "captcha", "done", "failed"];
   if (!body.status || !allowed.includes(body.status)) return Response.json({ error: "Bad status" }, { status: 400 });
   if (body.status === "done" && (!body.result || !Array.isArray(body.result.searches))) return Response.json({ error: "Result missing" }, { status: 400 });
-  const job = updateJob(id, { status: body.status, message: body.message ?? "", result: body.result });
+  const patch: Parameters<typeof updateJob>[1] = { status: body.status, message: body.message ?? "", result: body.result };
+  if (typeof body.debug === "string" && body.debug) patch.debug = body.debug.slice(0, 6000);
+  const job = updateJob(id, patch);
   return Response.json({ ok: true, status: job?.status });
 }

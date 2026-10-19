@@ -65,13 +65,15 @@ export interface RankJob {
   aiKeywords?: string[];
   testMode?: boolean;
   result?: RankJobResult;
+  /** when Google's page could not be read: a compact description of what it contained */
+  debug?: string;
 }
 
 export interface SearchResult { position: number; domain: string; title: string; url: string }
 
 export interface RankJobResult {
   /** one entry per keyword x city, in the order given */
-  searches: { keyword: string; city: string; results: SearchResult[]; clientPosition: number | null; unread?: boolean; note?: string }[];
+  searches: { keyword: string; city: string; results: SearchResult[]; clientPosition: number | null; unread?: boolean; note?: string; debug?: string }[];
   /** AI Mode page text per keyword (home city) */
   aiMode: { keyword: string; text: string }[];
   /** page text per listing platform, plus the first matching link where one was found */

@@ -32,11 +32,13 @@ const STREET_WORDS = /^(st|street|rd|road|ave|avenue|blvd|boulevard|dr|drive|ln|
  * City and state from an intake address. Handles "4212 Six Forks Rd, Raleigh, NC 27609",
  * "123 Main St, Chillicothe OH 45601" and "123 Main St Chillicothe OH". Returns empty strings when unsure.
  */
-const US_STATES = new Set("AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC".split(" "));
+// US states plus Canadian provinces and territories.
+const US_STATES = new Set("AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC AB BC MB NB NL NS NT NU ON PE QC SK YT".split(" "));
 
 export function parseCityState(address: string): { city: string; state: string } {
-  const a = address.replace(/\s+/g, " ").trim().replace(/,?\s*(USA|United States|US)\.?$/i, "");
-  const m = a.match(/^(.*?)[,\s]+([A-Za-z]{2})\.?,?(?:\s+\d{5}(?:-\d{4})?)?$/);
+  const a = address.replace(/\s+/g, " ").trim().replace(/[.,\s]+$/, "").replace(/,?\s*(USA|U\.S\.A|United States|US|Canada)\.?$/i, "").replace(/[.,\s]+$/, "");
+  // State or province, then an optional US ZIP or Canadian postal code (A1A 1A1).
+  const m = a.match(/^(.*?)[,\s]+([A-Za-z]{2})\.?,?(?:\s+(?:\d{5}(?:-\d{4})?|[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d))?$/);
   if (!m || !US_STATES.has(m[2].toUpperCase())) return { city: "", state: "" };
   const state = m[2].toUpperCase();
   const before = m[1].replace(/,\s*$/, "");
