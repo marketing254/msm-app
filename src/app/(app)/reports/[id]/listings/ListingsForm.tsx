@@ -44,13 +44,13 @@ export function ListingsForm({ report: r }: { report: Report }) {
                     <>
                       <td colSpan={3} className="dim">Not checked: the rank worker was not running for this report</td><td className="dim">-</td>
                       <td><span className="tag watch">Not checked</span></td>
-                      <td><input className="input" style={{ minWidth: 200 }} placeholder="Paste the listing link if you have it" value={urls[l.platform] ?? ""} onChange={(e) => setUrls((u) => ({ ...u, [l.platform]: e.target.value }))} /></td>
+                      <td><input className="input" style={{ minWidth: 200 }} placeholder="Paste the listing link; the page is read for the report" value={urls[l.platform] ?? ""} onChange={(e) => setUrls((u) => ({ ...u, [l.platform]: e.target.value }))} /></td>
                     </>
                   ) : l.match === "not-listed" ? (
                     <>
                       <td colSpan={3} className="dim">No listing found</td><td className="dim">-</td>
                       <td><span className="tag attention">Not listed</span></td>
-                      <td><input className="input" style={{ minWidth: 200 }} placeholder="Paste link if you find one" value={urls[l.platform] ?? ""} onChange={(e) => setUrls((u) => ({ ...u, [l.platform]: e.target.value }))} /></td>
+                      <td><input className="input" style={{ minWidth: 200 }} placeholder="Paste link if you find one; the page is read for the report" value={urls[l.platform] ?? ""} onChange={(e) => setUrls((u) => ({ ...u, [l.platform]: e.target.value }))} /></td>
                     </>
                   ) : (
                     <>
@@ -100,7 +100,7 @@ export function ListingsForm({ report: r }: { report: Report }) {
       <div className="actions">
         <button className="btn success" type="submit" disabled={!ok}>Confirm and build the report</button>
         <Link href={`/reports/${r.id}`} className="btn quiet">Back</Link>
-        <span className="note">{ok ? "Unchecked AI rows are kept as found; you can still edit wording on the review screen." : `${pending} listing link${pending === 1 ? "" : "s"} still to confirm.`}</span>
+        <span className="note">{ok ? (Object.values(urls).some((u) => u.trim()) ? "Pasted links are opened and read before the findings are written (about a minute). Unchecked AI rows are kept as found." : "Unchecked AI rows are kept as found; you can still edit wording on the review screen.") : `${pending} listing link${pending === 1 ? "" : "s"} still to confirm.`}</span>
       </div>
     </form>
   );

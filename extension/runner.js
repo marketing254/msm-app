@@ -244,6 +244,30 @@ async function runRankJob(job) {
   } finally { await closeTab(); $("captcha").style.display = "none"; }
 }
 
+/** Listing links the reviewer pasted at checkpoint 3: open each one and send back its text. */
+async function runPagesJob(job) {
+  const pages = job.pages ?? [];
+  log(`Job ${job.id}: reading ${pages.length} pasted listing link${pages.length === 1 ? "" : "s"}`);
+  setStatus("ok", `Reading ${pages.length} pasted listing page${pages.length === 1 ? "" : "s"}`);
+  await report(job.id, "running", `Reading ${pages.length} pasted listing link${pages.length === 1 ? "" : "s"}`);
+  const startedAt = new Date().toISOString(); const out = [];
+  try {
+    for (let i = 0; i < pages.length; i++) {
+      const p = pages[i];
+      await pausePoint(job.id);
+      setProgress(`${job.clientName}: reading the ${p.platform} page`, i, pages.length);
+      try { const r = await plainPage(p.url); out.push({ platform: p.platform, url: r.url || p.url, text: r.text }); log(`  ${p.platform}: ${r.text ? "read" : "empty"}`); }
+      catch (e) { out.push({ platform: p.platform, url: p.url, text: "" }); log(`  ${p.platform} failed: ${e.message.slice(0, 80)}`); }
+      await report(job.id, "running", `Read ${i + 1} of ${pages.length}: ${p.platform}`);
+      await sleep(rand(...GAP_MS));
+    }
+    await report(job.id, "done", "Finished", { result: { searches: [], aiMode: [], pages: out, startedAt, finishedAt: new Date().toISOString(), machine: settings.machine } });
+    log(`Job ${job.id} done.`);
+  } catch (e) {
+    log(`Job ${job.id} failed: ${e.message}`); await report(job.id, "failed", e.message.slice(0, 200));
+  } finally { await closeTab(); }
+}
+
 async function runCompetitorJob(job) {
   const names = job.competitorNames ?? [];
   log(`Job ${job.id}: Google reviews for ${names.length} competitors`);
@@ -276,7 +300,9 @@ async function loop() {
       const { jobs } = await api("/api/worker/jobs");
       if (jobs.length) {
         currentJob = jobs[0];
-        if (currentJob.kind === "competitors") await runCompetitorJob(currentJob); else await runRankJob(currentJob);
+        if (currentJob.kind === "competitors") await runCompetitorJob(currentJob);
+        else if (currentJob.kind === "pages") await runPagesJob(currentJob);
+        else await runRankJob(currentJob);
         currentJob = null;
       } else {
         setStatus("ok", "Online, waiting for a report", `Connected to ${settings.appUrl} as "${settings.machine}". Last check ${new Date().toTimeString().slice(0, 8)}.`);

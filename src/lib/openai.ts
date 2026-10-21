@@ -99,11 +99,11 @@ export async function readListing(platform: string, onFile: { name: string; addr
 }
 
 /** Google rating and review count for a competitor, from its Google search page text. */
-export async function readGoogleReviews(name: string, text: string): Promise<{ found: boolean; rating: number | null; reviews: number | null; address: string | null; phone: string | null } | null> {
+export async function readGoogleReviews(name: string, text: string, website = ""): Promise<{ found: boolean; rating: number | null; reviews: number | null; address: string | null; phone: string | null } | null> {
   if (!text.trim()) return null;
   return ask(
-    "You read the text of a Google search page and find the Google Business Profile panel for one business.",
-    `Business: ${name}\n\nPage text:\n${text.slice(0, 6000)}\n\nGive the star rating, the number of Google reviews, the address and phone from the business panel. If there is no panel for this business, found is false.`,
+    "You read the text of a Google search page and find the Google Business Profile panel for one business. Never report another business's numbers.",
+    `Business: ${name}${website ? ` (website ${website})` : ""}\n\nPage text:\n${text.slice(0, 6000)}\n\nGive the star rating, the number of Google reviews, the address and phone from the business panel for THIS business only. If the panel shown belongs to a different business, or there is no panel, found is false.`,
     `{"found":true|false,"rating":4.7|null,"reviews":312|null,"address":"...|null","phone":"...|null"}`,
   );
 }

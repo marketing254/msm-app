@@ -78,6 +78,26 @@ export function createCompetitorJob(r: Report): RankJob {
   return job;
 }
 
+/** Listing links the reviewer pasted at checkpoint 3 that have not been read yet. */
+export function pastedPages(r: Report): { platform: string; url: string }[] {
+  return r.listings.filter((l) => l.pasted && l.url).map((l) => ({ platform: l.platform, url: l.url! }));
+}
+
+/** Third job after checkpoint 3: open the pasted listing links and bring back their text. */
+export function createPagesJob(r: Report): RankJob {
+  const s = state();
+  const id = `J${String(s.nextId++).padStart(4, "0")}`;
+  const home = r.cities.find((c) => c.home) ?? r.cities[0];
+  const job: RankJob = {
+    id, reportId: r.id, kind: "pages", status: "pending", message: "Waiting for the worker to read the pasted listing links", createdAt: Date.now(), updatedAt: Date.now(),
+    clientName: r.intake.company, clientDomain: domainOf(r.intake.website), keywords: [], cities: [{ name: home.name, state: home.state }],
+    pages: pastedPages(r),
+  };
+  s.jobs.set(id, job);
+  persist(id, job);
+  return job;
+}
+
 export function getJob(id: string): RankJob | undefined { return state().jobs.get(id); }
 export function jobsForReport(reportId: string): RankJob[] { return [...state().jobs.values()].filter((j) => j.reportId === reportId); }
 export function forgetJob(id: string): void { state().jobs.delete(id); }
@@ -106,12 +126,36 @@ export function domainOf(url: string): string {
 }
 
 /** Sites that appear in results but are directories, not competing practices. */
-const DIRECTORIES = /(^|\.)(google|yelp|facebook|instagram|youtube|healthgrades|zocdoc|webmd|vitals|sharecare|ratemds|findatopdoc|realself|groupon|mapquest|yellowpages|bbb|nextdoor|indeed|linkedin|glassdoor|angi|thumbtack|care|tripadvisor|wikipedia|reddit|quora|avvo|justia|findlaw|lawyers|superlawyers|nolo|legalzoom|expertise|threebestrated|opencare|dentistry|1800dentist|smilegeneration|aspendental|castledental|americanbestdentists|doctor|md|npidb|npino|healthline|mayoclinic|clevelandclinic|nih|cdc|apple|bing|yahoo|amazon|pinterest|tiktok|x|twitter)\.(com|org|gov|net|co|io)$/i;
+const DIRECTORIES = /(^|\.)(google|yelp|facebook|instagram|youtube|healthgrades|zocdoc|webmd|vitals|sharecare|ratemds|findatopdoc|realself|groupon|mapquest|yellowpages|yellowpages|bbb|nextdoor|indeed|linkedin|glassdoor|angi|thumbtack|care|tripadvisor|wikipedia|reddit|quora|avvo|justia|findlaw|lawyers|superlawyers|nolo|legalzoom|expertise|threebestrated|opencare|dentistry|1800dentist|smilegeneration|aspendental|castledental|americanbestdentists|doctor|md|npidb|npino|healthline|mayoclinic|clevelandclinic|nih|cdc|apple|bing|yahoo|amazon|pinterest|tiktok|x|twitter|fresha|booksy|vagaro|classpass|treatwell|styleseat|mindbodyonline|zenoti|clutch|trustpilot|birdeye|cylex|hotfrog|foursquare|manta|chamberofcommerce|411|canpages|ratemds|opencare)\.(com|org|gov|net|co|io|ca)$/i;
 
 export function isDirectory(domain: string): boolean { return DIRECTORIES.test(domain); }
 
-function cleanTitle(t: string): string {
-  return t.split(/\s[|\-–—:]\s/)[0].replace(/\s+/g, " ").trim().slice(0, 60) || t.slice(0, 60);
+const GENERIC = /\b(near me|best|top \d+|prices?|cost|reviews?|in|services?|treatments?|clinic near)\b/i;
+
+/**
+ * Business name from the page titles seen for one domain. Titles look like "Chemical Peels St. Catharines | Contour
+ * Medical Aesthetics": the keyword part changes from page to page, the brand part repeats. So: split every title on
+ * the separators, drop pieces that contain a searched keyword, a city or generic words, and take the piece that
+ * appears most often. Falls back to the last piece of the first title, then the domain.
+ */
+export function brandFromTitles(titles: string[], keywords: string[], cities: string[], domain: string): string {
+  const avoid = [...keywords, ...cities].map((s) => s.toLowerCase());
+  const counts = new Map<string, number>();
+  for (const t of titles) {
+    for (const raw of t.split(/\s[|\-–—:·»]\s|\s[|]\s?|\s?[|]\s/)) {
+      const piece = raw.replace(/\s+/g, " ").trim();
+      if (piece.length < 3 || piece.length > 60) continue;
+      const low = piece.toLowerCase();
+      if (avoid.some((a) => a && low.includes(a))) continue;
+      if (GENERIC.test(low) && !/\b(spa|clinic|dental|dentistry|law|legal|medical|aesthetics|esthetics|wellness|center|centre)\b/i.test(low)) continue;
+      counts.set(piece, (counts.get(piece) ?? 0) + 1);
+    }
+  }
+  const best = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].length - b[0].length)[0];
+  if (best) return best[0];
+  const first = titles[0] ?? "";
+  const pieces = first.split(/\s[|\-–—:]\s/).map((p) => p.trim()).filter(Boolean);
+  return (pieces.length > 1 ? pieces[pieces.length - 1] : pieces[0] || domain).slice(0, 60);
 }
 
 /** Turns worker results into ranks, a competitor shortlist and their positions. */
@@ -126,7 +170,7 @@ export function ingest(r: Report, res: RankJobResult): { competitorsFound: numbe
   const cities = r.cities.filter((c) => c.selected);
   const client = domainOf(r.intake.website);
   const grid: RankGrid = {};
-  const beats = new Map<string, { beats: number; title: string; url: string }>();
+  const beats = new Map<string, { beats: number; title: string; url: string; titles: string[] }>();
 
   // Only searches whose results were actually read count. Unread or unsearched cells stay undefined and show as "-".
   const readable = res.searches.filter((s) => !s.unread && s.results.length > 0);
@@ -143,8 +187,8 @@ export function ingest(r: Report, res: RankJobResult): { competitorsFound: numbe
     for (const x of s.results) {
       if (x.domain === client || x.domain.endsWith("." + client) || isDirectory(x.domain)) continue;
       if (x.position < mine) {
-        const e = beats.get(x.domain) ?? { beats: 0, title: x.title, url: x.url };
-        e.beats++; beats.set(x.domain, e);
+        const e = beats.get(x.domain) ?? { beats: 0, title: x.title, url: x.url, titles: [] };
+        e.beats++; if (x.title) e.titles.push(x.title); beats.set(x.domain, e);
       }
     }
   }
@@ -153,7 +197,7 @@ export function ingest(r: Report, res: RankJobResult): { competitorsFound: numbe
   const total = keywords.length * cities.length;
   const top = [...beats.entries()].sort((a, b) => b[1].beats - a[1].beats).slice(0, 6);
   const competitors: Competitor[] = top.map(([domain, e], i) => ({
-    id: `${r.id}-w${i + 1}`, name: cleanTitle(e.title) || domain, beats: e.beats, distanceMiles: 0, overlapPct: 0, rating: 0, reviews: 0,
+    id: `${r.id}-w${i + 1}`, name: brandFromTitles(e.titles, keywords, cities.map((c) => c.name), domain), beats: e.beats, distanceMiles: 0, overlapPct: 0, rating: 0, reviews: 0,
     website: domain, verified: "verified", selected: false, dataKnown: false,
   }));
   if (competitors.length) {

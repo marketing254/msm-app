@@ -3,9 +3,9 @@ import {
   CHECKPOINTS, DRIVE_FOLDER, nextStepLabel, PLATFORMS, STEP_TITLES, stepDetail, VERTICAL_KEYWORDS, type Seed,
 } from "./data";
 import { env, has } from "./env";
-import { inspectSite } from "./site";
+import { inspectSite, siteName } from "./site";
 import { aiModeNames, nearbyCities, readGoogleReviews, readListing, servicesAndKeywords, writeFindings } from "./openai";
-import { createCompetitorJob, createJob, domainOf, getJob, ingest, JOB_TIMEOUT_MS, readableSearches, updateJob, workerOnline } from "./worker";
+import { createCompetitorJob, createJob, createPagesJob, domainOf, getJob, ingest, JOB_TIMEOUT_MS, pastedPages, readableSearches, updateJob, workerOnline } from "./worker";
 import type { RankJob } from "./types";
 import { runPageSpeed } from "./pagespeed";
 import { runCopyscape } from "./copyscape";
@@ -166,6 +166,45 @@ function startRunning(r: Report, fromStep: number) {
   syncSteps(r);
 }
 
+/** The client's own review rows (Google, Yelp, Facebook) from the listings and the ratings read from them. */
+function clientReviewRows(r: Report) {
+  const you = `${r.intake.company} (YOU)`;
+  const ratings = r.platformRatings ?? {};
+  return (["Google", "Yelp", "Facebook"] as const).map((platform) => {
+    const l = r.listings.find((x) => x.platform === platform);
+    const g = ratings[platform];
+    if (!l || l.match === "not-listed" || l.match === "not-checked") return { who: you, platform, rating: null, reviews: null, note: l?.match === "not-checked" ? "Not checked" : "No listing found" };
+    if (!g || (g.rating == null && g.reviews == null)) return { who: you, platform, rating: null, reviews: null, note: platform === "Facebook" ? "Page found but shows no public rating" : "Listed but no rating shown" };
+    return { who: you, platform, rating: g.rating, reviews: g.reviews, note: "" };
+  });
+}
+
+/** Pages the reviewer pasted at checkpoint 3, read by the worker: fill the listing and its rating from the page. */
+async function ingestPastedPages(r: Report, pages: { platform: string; url: string; text: string }[]) {
+  const onFile = { name: r.intake.company, address: r.intake.address, phone: r.intake.office };
+  let read = 0;
+  for (const l of r.listings) {
+    if (!l.pasted) continue;
+    const p = pages.find((x) => x.platform === l.platform);
+    const got = p && p.text && has.openai() ? await readListing(l.platform, onFile, p.url || l.url || "", p.text) : null;
+    l.pasted = false; l.confirmed = true;
+    if (got && got.found) {
+      l.name = got.name ?? l.name ?? r.intake.company; l.address = got.address ?? l.address; l.phone = got.phone ?? l.phone;
+      l.match = got.matches ? "match" : "mismatch"; l.reason = got.note; l.source = "worker";
+      r.platformRatings ??= {}; r.platformRatings[l.platform] = { rating: got.rating, reviews: got.reviews };
+      read++;
+    } else {
+      // Page could not be read (sign-in wall, blocked): keep the link as listed with the details on file, no rating.
+      l.match = l.match === "not-listed" || l.match === "not-checked" ? "match" : l.match;
+      l.name ??= r.intake.company; l.address ??= r.intake.address; l.phone ??= r.intake.office;
+      l.reason = got && !got.found ? `Link given by the reviewer; ${got.note || "the business was not found on that page"}` : "Link given by the reviewer; the page could not be read";
+    }
+  }
+  r.reviews = [...clientReviewRows(r), ...r.reviews.filter((x) => !x.who.endsWith("(YOU)"))];
+  if (read) { r.provenance[6] = "live"; r.provenance[7] = "live"; }
+  log(r, `Pasted listing links read: ${read} of ${pages.length} page${pages.length === 1 ? "" : "s"} gave the listing details`);
+}
+
 /* ---------------- research steps ---------------- */
 
 /** Runs one step. Real where a source is connected, otherwise the empty values stay. */
@@ -237,16 +276,8 @@ async function runStep(r: Report, step: number): Promise<void> {
     }
     case 7: {
       const ratings = r.platformRatings;
-      if (!ratings || r.provenance[6] !== "live") { r.provenance[7] = r.provenance[6] === "not run" ? "not run" : "not run"; return; }
-      const you = `${r.intake.company} (YOU)`;
-      const mine = (["Google", "Yelp", "Facebook"] as const).map((platform) => {
-        const l = r.listings.find((x) => x.platform === platform);
-        const g = ratings[platform];
-        if (!l || l.match === "not-listed") return { who: you, platform, rating: null, reviews: null, note: "No listing found" };
-        if (!g || (g.rating == null && g.reviews == null)) return { who: you, platform, rating: null, reviews: null, note: platform === "Facebook" ? "Page found but shows no public rating" : "Listed but no rating shown" };
-        return { who: you, platform, rating: g.rating, reviews: g.reviews, note: "" };
-      });
-      r.reviews = [...mine, ...r.reviews.filter((x) => !x.who.endsWith("(YOU)"))];
+      if (!ratings || r.provenance[6] !== "live") { r.provenance[7] = "not run"; return; }
+      r.reviews = [...clientReviewRows(r), ...r.reviews.filter((x) => !x.who.endsWith("(YOU)"))];
       r.provenance[7] = "live";
       return;
     }
@@ -258,7 +289,7 @@ async function runStep(r: Report, step: number): Promise<void> {
       let live = 0;
       for (const c of r.competitors.filter((x) => x.selected)) {
         const t = texts.find((x) => x.id === c.id);
-        const read = t ? await readGoogleReviews(c.name, t.text) : null;
+        const read = t ? await readGoogleReviews(c.name, t.text, c.website) : null;
         if (read?.found) { c.rating = read.rating ?? 0; c.reviews = read.reviews ?? 0; live++; others.push({ who: c.name, platform: "Google", rating: read.rating, reviews: read.reviews, note: "" }); }
         else others.push({ who: c.name, platform: "Google", rating: null, reviews: null, note: "No Google Business Profile found" });
       }
@@ -342,18 +373,23 @@ export async function advance(id: string): Promise<Report | undefined> {
       log(r, "Rank worker is not configured (WORKER_TOKEN missing or MSM_DISABLE_LIVE set). Research paused at step 3.");
       syncSteps(r); save(r); return r;
     }
-    // Steps 3 and 9 are done by the browser worker on a PC. Hand it a job and wait here until it reports back.
-    if ((step === 3 || step === 9) && has.worker()) {
+    // Steps 3 and 9 are done by the browser worker on a PC, and step 11 too when the reviewer pasted listing links
+    // at checkpoint 3. Hand it a job and wait here until it reports back.
+    const needsPages = step === 11 && pastedPages(r).length > 0;
+    if ((step === 3 || step === 9 || needsPages) && has.worker()) {
       const isRank = step === 3;
-      const jobId = isRank ? r.jobId : r.competitorJobId;
+      const jobId = isRank ? r.jobId : step === 9 ? r.competitorJobId : r.pageJobId;
       const job = jobId ? getJob(jobId) : undefined;
       if (!job) {
         if (isRank) {
           const j = createJob(r); r.jobId = j.id;
           log(r, `Sent ${j.keywords.length * j.cities.length} searches plus the 6 listing pages to the rank worker${j.testMode ? " (test mode: 5 searches in the home city, the rest show as -)" : ""}`);
-        } else {
+        } else if (step === 9) {
           const j = createCompetitorJob(r); r.competitorJobId = j.id;
           log(r, `Sent ${j.competitorNames?.length ?? 0} competitors to the worker for Google reviews`);
+        } else {
+          const j = createPagesJob(r); r.pageJobId = j.id;
+          log(r, `Sent ${j.pages?.length ?? 0} pasted listing link${(j.pages?.length ?? 0) === 1 ? "" : "s"} to the worker to read`);
         }
         syncSteps(r); return r;
       }
@@ -369,7 +405,13 @@ export async function advance(id: string): Promise<Report | undefined> {
         log(r, `Rank checks did not run: ${job.message}. Research paused. Fix the cause and click Run rank checks again.`);
         syncSteps(r); save(r); return r;
       }
-      if (job.status === "failed") { r.provenance[step] = "not run"; log(r, `Worker failed on step ${step}: ${job.message}. Website values stay empty.`); }
+      if (job.status === "failed" && needsPages) {
+        // The pasted pages could not be read: keep the links as "listed", say so, and carry on with the findings.
+        for (const l of r.listings) if (l.pasted) { l.pasted = false; l.match = l.match === "not-listed" || l.match === "not-checked" ? "match" : l.match; l.name ??= r.intake.company; l.address ??= r.intake.address; l.phone ??= r.intake.office; l.reason = "Link given by the reviewer; the page could not be read"; }
+        log(r, `Pasted listing links could not be read: ${job.message}. They are kept as listed, with no rating.`);
+      } else if (job.status === "done" && job.result && needsPages) {
+        await ingestPastedPages(r, job.result.pages ?? []);
+      } else if (job.status === "failed") { r.provenance[step] = "not run"; log(r, `Worker failed on step ${step}: ${job.message}. Website values stay empty.`); }
       else if (job.status === "done" && job.result && isRank) {
         const { read, total } = readableSearches(job.result);
         // Fewer than half the searches readable: the positions would be mostly empty or wrong. Pause at step 3.
@@ -383,6 +425,12 @@ export async function advance(id: string): Promise<Report | undefined> {
         const { competitorsFound } = ingest(r, job.result);
         r.provenance[3] = "live";
         log(r, `Rank worker finished on ${job.result.machine}: results read for ${read} of ${total} searches, ${competitorsFound} competitors found`);
+        // Replace title-derived names with what each competitor calls itself on its own site (8 s each, in parallel).
+        const named = await Promise.all(r.competitors.filter((c) => !c.added && c.website).map(async (c) => ({ c, name: await siteName(c.website) })));
+        let fixed = 0;
+        for (const { c, name } of named) if (name && name.toLowerCase() !== c.name.toLowerCase()) { c.name = name; fixed++; }
+        r.reviews = r.reviews.map((x) => { const c = r.competitors.find((k) => k.id === x.who || k.website === x.who); return c ? { ...x, who: c.name } : x; });
+        if (fixed) log(r, `Competitor names read from their websites (${fixed} updated)`);
       }
     }
     try { await runStep(r, step); }
@@ -541,12 +589,15 @@ export async function pickCompetitors(id: string, ids: string[], added: { name: 
 
 export async function confirmListings(id: string, urls: Record<string, string>, checkedKeywords: string[]): Promise<Report | undefined> {
   const r = await getReport(id); if (!r) return;
+  let pastedCount = 0;
   r.listings = r.listings.map((l) => {
     const u = urls[l.platform]?.trim();
     if (l.match === "not-applicable") return { ...l, confirmed: true };
-    if (u) return { ...l, url: u, match: l.match === "not-listed" ? "match" : l.match, name: l.name ?? r.intake.company, address: l.address ?? r.intake.address, phone: l.phone ?? r.intake.office, confirmed: true };
+    // A pasted link: keep it, and mark it to be opened and read by the worker before the findings are written.
+    if (u && /^https?:\/\//i.test(u)) { pastedCount++; return { ...l, url: u, pasted: true, confirmed: true }; }
     return { ...l, confirmed: l.match !== "not-listed" ? true : l.confirmed };
   });
+  if (pastedCount) log(r, `${pastedCount} listing link${pastedCount === 1 ? "" : "s"} pasted by the reviewer; the worker will read ${pastedCount === 1 ? "it" : "them"} next`);
   r.aiMode = r.aiMode.map((a) => ({ ...a, checked: checkedKeywords.includes(a.keyword) || a.checked }));
   r.provenance[10] = r.provenance[10] ?? "not run";
   log(r, "Listings and AI Mode confirmed by Dulmini");

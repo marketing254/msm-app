@@ -256,6 +256,32 @@ async function readListings(page, job) {
   return out;
 }
 
+/** Listing links the reviewer pasted at checkpoint 3: open each one and send back its text. */
+async function runPagesJob(job) {
+  const pages = job.pages ?? [];
+  log(`Job ${job.id}: reading ${pages.length} pasted listing links`);
+  await report(job.id, "running", `Reading ${pages.length} pasted listing links`);
+  const opts = { headless: HEADLESS, chromiumSandbox: true, viewport: { width: 1280, height: 900 }, locale: "en-US", ignoreDefaultArgs: ["--enable-automation"] };
+  let ctx;
+  try { ctx = await chromium.launchPersistentContext(join(here, "profile"), { ...opts, channel: "chrome" }); }
+  catch { ctx = await chromium.launchPersistentContext(join(here, "profile"), opts); }
+  const page = ctx.pages()[0] ?? (await ctx.newPage());
+  const startedAt = new Date().toISOString(); const out = [];
+  try {
+    for (let i = 0; i < pages.length; i++) {
+      const p = pages[i];
+      try { await page.goto(p.url, { waitUntil: "domcontentloaded", timeout: 60000 }); out.push({ platform: p.platform, url: page.url(), text: await pageText(page) }); log(`  ${p.platform}: read`); }
+      catch (e) { out.push({ platform: p.platform, url: p.url, text: "" }); log(`  ${p.platform} failed: ${e.message.slice(0, 80)}`); }
+      await report(job.id, "running", `Read ${i + 1} of ${pages.length}: ${p.platform}`);
+      await pause();
+    }
+    await report(job.id, "done", "Finished", { searches: [], aiMode: [], pages: out, startedAt, finishedAt: new Date().toISOString(), machine: MACHINE });
+    log(`Job ${job.id} done.`);
+  } catch (e) {
+    log(`Job ${job.id} failed: ${e.message}`); await report(job.id, "failed", e.message.slice(0, 200));
+  } finally { await ctx.close().catch(() => {}); }
+}
+
 async function runCompetitorJob(job) {
   const names = job.competitorNames ?? [];
   log(`Job ${job.id}: Google reviews for ${names.length} competitors`);
@@ -284,6 +310,7 @@ async function runCompetitorJob(job) {
 
 async function runJob(job) {
   if (job.kind === "competitors") return runCompetitorJob(job);
+  if (job.kind === "pages") return runPagesJob(job);
   const total = job.keywords.length * job.cities.length;
   log(`Job ${job.id}: ${job.clientName}, ${total} searches + ${job.keywords.length} AI Mode reads`);
   await report(job.id, "running", `Starting ${total} searches`);

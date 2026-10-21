@@ -48,11 +48,13 @@ export interface LogEntry {
 export interface RankJob {
   id: string;
   reportId: string;
-  kind: "rank" | "competitors";
+  kind: "rank" | "competitors" | "pages";
   /** kind = rank: also read the client's listings and reviews on the 6 platforms */
   listings?: { name: string; address: string; phone: string; city: string; state: string; vertical: Vertical };
   /** kind = competitors: read Google rating and review count for these */
   competitorNames?: { id: string; name: string; domain: string; city: string; state: string }[];
+  /** kind = pages: open these listing links the reviewer pasted and return the page text */
+  pages?: { platform: string; url: string }[];
   status: "pending" | "running" | "captcha" | "done" | "failed";
   message: string;
   createdAt: number;
@@ -80,6 +82,8 @@ export interface RankJobResult {
   listings?: { platform: string; url: string; text: string }[];
   /** Google page text per competitor */
   competitors?: { id: string; url: string; text: string }[];
+  /** page text per pasted listing link (kind = pages) */
+  pages?: { platform: string; url: string; text: string }[];
   startedAt: string;
   finishedAt: string;
   machine: string;
@@ -114,6 +118,8 @@ export interface Listing {
   /** api = official API, worker = read from the platform page by the browser worker, search = found by a web search */
   source: "api" | "worker" | "search";
   confirmed: boolean;
+  /** true when the reviewer pasted this link at checkpoint 3 and the page has not been read yet */
+  pasted?: boolean;
 }
 
 export interface AiModeRow {
@@ -181,6 +187,7 @@ export interface Report {
   lastError?: string;
   jobId?: string;
   competitorJobId?: string;
+  pageJobId?: string;
   /** rating and review count read per platform in step 6, used by step 7 */
   platformRatings?: Record<string, { rating: number | null; reviews: number | null }>;
   notify: NotifyChannel;
