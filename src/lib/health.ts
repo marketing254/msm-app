@@ -8,8 +8,25 @@ import { ensureLoaded } from "./store";
 
 export interface Health { name: string; use: string; configured: boolean; ok: boolean; detail: string }
 
-declare global { var __msmHealth: { at: number; items: Health[] } | undefined }
+declare global { var __msmHealth: { at: number; items: Health[] } | undefined; var __msmHealthRun: Promise<Health[]> | null | undefined }
 const HEALTH_TTL_MS = 10 * 60_000;
+
+/**
+ * For the Settings page: never waits long. Returns the last result at once (even if older than 10 minutes) and
+ * refreshes in the background; on a cold server with no result yet, waits at most 2 seconds, then shows "checking".
+ */
+export async function healthNow(): Promise<{ items: Health[] | null; pending: boolean }> {
+  await ensureLoaded();
+  const cached = globalThis.__msmHealth;
+  const fresh = cached && Date.now() - cached.at < HEALTH_TTL_MS;
+  if (!fresh && !globalThis.__msmHealthRun) {
+    globalThis.__msmHealthRun = checkAll(true).finally(() => { globalThis.__msmHealthRun = null; });
+  }
+  if (cached) return { items: await checkAll(false), pending: !fresh };
+  const run = globalThis.__msmHealthRun!;
+  const quick = await Promise.race([run, new Promise<null>((r) => setTimeout(() => r(null), 2000))]);
+  return { items: quick, pending: !quick };
+}
 
 /** When the external checks were last run, for the Settings note. Null when never on this instance. */
 export function checkedAt(): number | null { return globalThis.__msmHealth?.at ?? null; }

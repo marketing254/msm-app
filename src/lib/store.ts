@@ -13,8 +13,8 @@ import { appendRows, createReportSheet, nextDataId, nextLogId, upsertReportRow }
 import { buildWorkbook } from "./excel";
 import { reportDataRows, reportRow } from "./dbExport";
 import { summarise } from "@/components/ui";
-import { changedElsewhere, loadAll, persist } from "./persist";
-import { restoreJob, restoreWorker } from "./worker";
+import { changedElsewhere, forget, loadAll, persist } from "./persist";
+import { forgetJob, jobsForReport, restoreJob, restoreWorker } from "./worker";
 
 /**
  * Report store. Reports live in memory on the server; every approval is also written to the MSM Database sheet.
@@ -74,6 +74,7 @@ const SYNC_MS = 2000;
 function apply(all: Record<string, unknown>) {
   const s = store();
   for (const [id, v] of Object.entries(all)) {
+    if (v === null) { s.reports.delete(id); s.meta.delete(id); forgetJob(id); continue; } // deleted on another instance
     if (id === "WORKER") restoreWorker(v as { lastHeartbeat: number; machine: string });
     else if (id.startsWith("J")) restoreJob(v as RankJob);
     else {
@@ -642,6 +643,16 @@ export async function readAiMode(id: string): Promise<Report | undefined> {
   syncSteps(r);
   save(r);
   return r;
+}
+
+/** Admin: removes a report and its worker jobs everywhere (memory and the State tab). Approved reports keep their Sheet. */
+export async function deleteReport(id: string): Promise<boolean> {
+  const r = await getReport(id); if (!r) return false;
+  const jobIds = jobsForReport(id).map((j) => j.id);
+  const s = store(); s.reports.delete(id); s.meta.delete(id);
+  for (const j of jobIds) forgetJob(j);
+  await forget([id, ...jobIds]);
+  return true;
 }
 
 export async function sendBack(id: string): Promise<Report | undefined> {

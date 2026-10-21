@@ -53,11 +53,14 @@ export function serviceAccountEmail(): string {
 }
 
 /** Email of the Google account in use (OAuth), for the Settings page. */
+let signedInCache: { at: number; email: string } | null = null;
 export async function signedInAs(): Promise<string> {
   if (!has.googleUser()) return "";
+  if (signedInCache && Date.now() - signedInCache.at < 10 * 60_000) return signedInCache.email;
   try {
     const res = await google.oauth2({ version: "v2", auth: userAuth() }).userinfo.get();
-    return res.data.email ?? "";
+    signedInCache = { at: Date.now(), email: res.data.email ?? "" };
+    return signedInCache.email;
   } catch { return ""; }
 }
 
@@ -196,6 +199,22 @@ export async function stateSave(id: string, json: string): Promise<string> {
     else stateRows = null; // unknown position: reload the index next time
   }
   return at;
+}
+
+/** Deletes the State rows for the given ids (used to remove test reports and their jobs). */
+export async function stateDelete(ids: string[]): Promise<number> {
+  await ensureStateTab();
+  const index = await stateIndex();
+  const sid = sheetIdFromUrl(env.databaseSheetUrl);
+  const meta = await sheets().spreadsheets.get({ spreadsheetId: sid, fields: "sheets.properties" });
+  const sheetId = (meta.data.sheets ?? []).find((s) => s.properties?.title === STATE_TAB)?.properties?.sheetId;
+  if (sheetId == null) return 0;
+  const rows = ids.filter((id) => id in index).map((id) => stateRows!.get(id)!).filter(Boolean).sort((a, b) => b - a);
+  if (!rows.length) return 0;
+  // Delete from the bottom up so earlier row numbers stay valid.
+  await sheets().spreadsheets.batchUpdate({ spreadsheetId: sid, requestBody: { requests: rows.map((r) => ({ deleteDimension: { range: { sheetId, dimension: "ROWS", startIndex: r - 1, endIndex: r } } })) } });
+  stateRows = null;
+  return rows.length;
 }
 
 /* ---------------- Report Sheet in the MSM Reports folder ---------------- */

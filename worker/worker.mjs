@@ -103,6 +103,27 @@ async function organicResults(page) {
     }
     if (out.length >= 3) return out;
 
+    // 1b. Title + shown address: Google prints each result's web address under its title ("https://site.com › page").
+    //     This works even when every link on the page goes through google.com, which is what some sessions get.
+    const NOISE = /^(Choose what|Search Results|Customi[sz]ed date|Web results|Page navigation|Next|Footer links|Share|People also ask|Related searches|Things to know|Images|Videos|Short videos|Top stories|Places|Discussions)/i;
+    const byTitle = [];
+    for (const h of root.querySelectorAll("h3, [role=heading]")) {
+      const title = (h.innerText || "").replace(/\s+/g, " ").trim();
+      if (!title || NOISE.test(title) || h.closest(ADS)) continue;
+      // Smallest ancestor whose text contains a web address: that is this result's block.
+      let el = h, href = "";
+      for (let i = 0; el && el !== root && i < 8 && !href; i++) {
+        el = el.parentElement; if (!el) break;
+        const link = [...el.querySelectorAll("a[href]")].map((a) => unwrap(a.href)).find(isExternal);
+        if (link) { href = link; break; }
+        const cite = el.querySelector("cite");
+        const m = ((cite && cite.innerText) || el.innerText || "").replace(/\s+/g, " ").match(/https?:\/\/([a-z0-9-]+\.)+[a-z]{2,}(\/[^\s›]*)?/i);
+        if (m) href = m[0].replace(/[›…]+$/, "");
+      }
+      if (href) byTitle.push({ href, title, method: "title+address" });
+    }
+    if (byTitle.length >= 3) return byTitle;
+
     // 2. Any layout: website links in page order, leaving out blocks that are not organic results
     //    (AI Overview, ads, the map pack, People also ask, images, videos, related searches, navigation).
     const SKIP = /^(AI Overview|AI Mode|Sponsored|Ads?\b|People also ask|People also search|Places|Businesses|Map|Locations|Images|Videos|Short videos|Top stories|Related searches|Things to know|Discussions and forums|Perspectives|What people are saying)/i;
@@ -128,7 +149,8 @@ async function organicResults(page) {
       if (skipped(a)) continue;
       generic.push({ href, title: text.split(/ (?:https?:\/\/|www\.|›)/)[0].slice(0, 120), method: "page order" });
     }
-    return generic.length > out.length ? generic : out;
+    const best = [generic, byTitle, out].sort((a, b) => b.length - a.length)[0];
+    return best;
   });
 }
 
@@ -139,7 +161,9 @@ async function pageStructure(page) {
     const links = [...document.querySelectorAll("a[href]")].filter((a) => { try { return !/(^|\.)google\./.test(new URL(a.href).hostname); } catch { return false; } })
       .slice(0, 25).map((a) => `${new URL(a.href).hostname} :: ${(a.innerText || "").replace(/\s+/g, " ").trim().slice(0, 60)} :: ${a.parentElement?.tagName ?? ""}`);
     const ids = ["rso", "search", "center_col", "rcnt", "main", "botstuff"].filter((i) => document.getElementById(i));
-    return `url=${location.href.slice(0, 120)}\nids=${ids.join(",")} anchors=${document.querySelectorAll("a[href]").length} h3=${document.querySelectorAll("h3").length}\nHEADINGS: ${heads.join(" | ")}\nLINKS:\n${links.join("\n")}\nTEXT: ${document.body.innerText.replace(/\s+/g, " ").slice(0, 1500)}`;
+    // Raw hrefs around the first result titles, so the link format Google uses is visible.
+    const raw = [...document.querySelectorAll("h3")].slice(0, 4).map((h) => { let el = h; for (let i = 0; i < 4 && el && !el.querySelector("a[href]"); i++) el = el.parentElement; const a = el?.querySelector("a[href]"); return `${(h.innerText || "").slice(0, 40)} => ${a ? a.getAttribute("href")?.slice(0, 140) : "no anchor"} | tag=${h.parentElement?.tagName} ping=${a?.hasAttribute("ping")} data-href=${a?.getAttribute("data-href")?.slice(0, 60) ?? ""}`; });
+    return `url=${location.href.slice(0, 120)}\nids=${ids.join(",")} anchors=${document.querySelectorAll("a[href]").length} h3=${document.querySelectorAll("h3").length}\nHEADINGS: ${heads.join(" | ")}\nRESULT LINKS:\n${raw.join("\n")}\nEXTERNAL LINKS:\n${links.join("\n")}\nTEXT: ${document.body.innerText.replace(/\s+/g, " ").slice(0, 1500)}`;
   }).catch((e) => `structure not readable: ${e.message}`);
 }
 

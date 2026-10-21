@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "MSM Rank Helper",
+  "version": "1.0.0",
+  "description": "Does the Google searches for MSM Studio reports in this Chrome, the way a person would. Internal EKWA tool.",
+  "permissions": ["storage", "tabs", "scripting", "alarms"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "MSM Rank Helper", "default_popup": "popup.html" },
+  "options_page": "options.html",
+  "icons": { "128": "icon.png" }
+}

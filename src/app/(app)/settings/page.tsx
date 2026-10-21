@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { allowedUsers, ROLE_DESCRIPTION } from "@/lib/auth";
 import { DRIVE_FOLDER } from "@/lib/data";
-import { authMode, checkAll, checkedMinutesAgo, liveDisabled, serviceAccount, signedInAs } from "@/lib/health";
+import { authMode, checkedMinutesAgo, healthNow, liveDisabled, serviceAccount, signedInAs } from "@/lib/health";
 import { guard } from "@/lib/guard";
 import { env } from "@/lib/env";
 import { recheckConnections, resetCopyscape } from "@/app/actions";
@@ -10,7 +10,7 @@ export const metadata: Metadata = { title: "Settings" };
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const [{ users, source }, health] = await Promise.all([allowedUsers(), checkAll()]);
+  const [{ users, source }, { items: health, pending }] = await Promise.all([allowedUsers(), healthNow()]);
   const sa = serviceAccount();
   const userEmail = authMode() === "user" ? await signedInAs() : "";
   const cs = guard.copyscape.status();
@@ -18,6 +18,7 @@ export default async function SettingsPage() {
 
   return (
     <>
+      {pending && <meta httpEquiv="refresh" content="6" />}
       <div className="topbar">
         <h1 className="h1">Settings<small>Who can sign in, and whether each connection is working right now</small></h1>
       </div>
@@ -26,14 +27,15 @@ export default async function SettingsPage() {
 
       <div className="card">
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-          <h3 style={{ margin: 0 }}>Connections <span className="note">{agoMin < 1 ? "checked just now" : `checked ${agoMin} min ago`}; the worker row is always current</span></h3>
+          <h3 style={{ margin: 0 }}>Connections <span className="note">{pending ? "checking now, this page refreshes by itself" : agoMin < 1 ? "checked just now" : `checked ${agoMin} min ago`}; the worker row is always current</span></h3>
           <form action={recheckConnections}><button className="btn quiet" type="submit">Check again</button></form>
         </div>
         <div className="table-wrap">
           <table>
             <thead><tr><th>Connection</th><th>Used for</th><th>Status</th><th>Detail</th></tr></thead>
             <tbody>
-              {health.map((h) => (
+              {!health && <tr><td colSpan={4} className="dim">Checking every connection. This takes a few seconds the first time; the page refreshes by itself.</td></tr>}
+              {(health ?? []).map((h) => (
                 <tr key={h.name}>
                   <td><b>{h.name}</b></td>
                   <td className="dim">{h.use}</td>

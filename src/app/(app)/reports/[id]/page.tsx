@@ -7,7 +7,8 @@ import { getReport, reportHref, reportJob } from "@/lib/store";
 import { CHECKPOINTS } from "@/lib/data";
 import { ReportHeader, StatusPill, formatDate } from "@/components/ui";
 import { AutoRefresh } from "@/components/AutoRefresh";
-import { rerunRanks } from "@/app/actions";
+import { deleteReport, rerunRanks } from "@/app/actions";
+import { getSession } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,7 @@ export default async function ReportPage({ params, searchParams }: { params: Pro
   const { approved } = await searchParams;
   const r = await getReport(id);
   if (!r) notFound();
+  const session = await getSession();
 
   const done = r.steps.filter((s) => s.state === "done").length;
   const pct = Math.round((done / 12) * 100);
@@ -126,6 +128,16 @@ export default async function ReportPage({ params, searchParams }: { params: Pro
               {r.log.slice(0, 8).map((l, i) => <div key={i}><b>{l.time}</b>{l.text}</div>)}
             </div>
           </div>
+          {session?.role === "Admin" && (
+            <div className="card">
+              <h3>Admin</h3>
+              <form action={deleteReport} style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <input type="hidden" name="id" value={r.id} />
+                <button className="btn quiet" type="submit">Delete this report</button>
+                <span className="note">Removes it from the list and the app&rsquo;s memory so the client can be started fresh. An approved report&rsquo;s Google Sheet is not touched.</span>
+              </form>
+            </div>
+          )}
         </div>
       </div>
     </>

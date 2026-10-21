@@ -49,6 +49,8 @@ export async function changedElsewhere(): Promise<Record<string, unknown>> {
   const index = await stateIndex();
   const ids = Object.entries(index).filter(([id, at]) => !pending.has(id) && stamps.get(id) !== at).map(([id]) => id);
   const out: Record<string, unknown> = {};
+  // Rows this instance knew that are gone from the sheet were deleted elsewhere: hand back a tombstone.
+  for (const id of [...stamps.keys()]) if (!(id in index) && !pending.has(id)) { out[id] = null; stamps.delete(id); lastSaved.delete(id); }
   if (!ids.length) return out;
   const rows = await stateGet(ids);
   for (const [id, { json, at }] of Object.entries(rows)) {
@@ -56,4 +58,12 @@ export async function changedElsewhere(): Promise<Record<string, unknown>> {
     try { out[id] = JSON.parse(json); lastSaved.set(id, json); stamps.set(id, at); } catch { /* skip a bad row */ }
   }
   return out;
+}
+
+/** Removes rows from the State tab and forgets them locally. */
+export async function forget(ids: string[]): Promise<number> {
+  for (const id of ids) { stamps.delete(id); lastSaved.delete(id); }
+  if (!persistEnabled()) return 0;
+  const { stateDelete } = await import("./google");
+  return stateDelete(ids);
 }

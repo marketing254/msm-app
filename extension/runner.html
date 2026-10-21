@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MSM Rank Helper</title>
+<style>
+  :root { --navy: #1F3A5F; --bg: #F5F7FA; --line: #DDE1E7; --dim: #6B7A8C; --green: #1E7F4F; --amber: #B7791F; --red: #B42318; }
+  body { margin: 0; font: 14px/1.5 "Segoe UI", system-ui, Arial, sans-serif; color: #1E2733; background: var(--bg); }
+  header { background: var(--navy); color: #fff; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; }
+  header b { font-size: 16px; }
+  main { padding: 18px 20px; max-width: 900px; }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; }
+  .status { font-size: 16px; font-weight: 600; }
+  .status.ok { color: var(--green); } .status.warn { color: var(--amber); } .status.bad { color: var(--red); }
+  .note { color: var(--dim); font-size: 13px; }
+  pre { background: #0F1B2D; color: #D8E1EC; padding: 12px; border-radius: 6px; max-height: 420px; overflow: auto; font: 12.5px/1.5 Consolas, monospace; white-space: pre-wrap; }
+  button { background: var(--navy); color: #fff; border: 0; border-radius: 6px; padding: 7px 12px; font: inherit; cursor: pointer; }
+  button.quiet { background: #fff; color: var(--navy); border: 1px solid var(--line); }
+  .warnbox { background: #FBF0C9; border: 1px solid #E7B416; border-radius: 6px; padding: 10px 12px; margin-bottom: 12px; display: none; }
+</style>
+</head>
+<body>
+<header><b>MSM Rank Helper</b><span id="who" class="note" style="color:#C9D3E0"></span></header>
+<main>
+  <div class="card">
+    <div id="status" class="status">Starting...</div>
+    <div id="detail" class="note"></div>
+    <div style="margin-top: 10px; display: flex; gap: 8px;">
+      <button id="pause" class="quiet">Pause</button>
+      <button id="settings" class="quiet">Settings</button>
+    </div>
+  </div>
+  <div id="captcha" class="warnbox"><b>Google is asking for a captcha.</b> Open the Google tab this extension opened, tick the box, and the searches continue by themselves. Leave this tab open.</div>
+  <div class="card">
+    <div class="note" style="margin-bottom: 6px;">Keep this tab open (it is pinned). Nothing happens here until a report reaches its rank checks in MSM Studio. While a job runs, a Google tab opens and the searches happen in it; do not use that tab.</div>
+    <pre id="log"></pre>
+  </div>
+</main>
+<script src="reader.js"></script>
+<script src="runner.js"></script>
+</body>
+</html>

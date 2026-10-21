@@ -79,6 +79,8 @@ export function createCompetitorJob(r: Report): RankJob {
 }
 
 export function getJob(id: string): RankJob | undefined { return state().jobs.get(id); }
+export function jobsForReport(reportId: string): RankJob[] { return [...state().jobs.values()].filter((j) => j.reportId === reportId); }
+export function forgetJob(id: string): void { state().jobs.delete(id); }
 const STALE_MS = 3 * 60_000;
 
 /** Jobs the worker should take: pending ones, plus running/captcha ones nobody has touched for 3 minutes (worker restarted). */

@@ -132,6 +132,16 @@ export async function readAiMode(formData: FormData) {
   redirect(`/reports/${id}/listings`);
 }
 
+/** Admin only: delete a report (and its worker jobs) so a client can be started fresh. */
+export async function deleteReport(formData: FormData) {
+  const id = String(formData.get("id"));
+  const session = await getSession();
+  if (session?.role !== "Admin") redirect(`/reports/${id}`);
+  await store.deleteReport(id);
+  revalidatePath("/reports");
+  redirect("/reports");
+}
+
 export async function sendBack(formData: FormData) {
   const id = String(formData.get("id"));
   await store.sendBack(id);
