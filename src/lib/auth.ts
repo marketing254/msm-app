@@ -18,7 +18,7 @@ export const ROLE_DESCRIPTION: Record<Role, string> = {
 export const ALLOWED_USERS: (Session & { team: string })[] = [
   { name: "Dulmini Dodawatte", email: "dulmini@ekwa.com", role: "Reviewer", team: "Sales" },
   { name: "Lila Stone", email: "lila@ekwa.com", role: "AE", team: "Sales" },
-  { name: "Chamika", email: "chamika@ekwa.com", role: "Viewer", team: "Oversight" },
+  { name: "Chamika", email: "chamika@ekwa.com", role: "Reviewer", team: "Sales" },
   { name: "Fathima Rushdha", email: "rushdha@ekwa.com", role: "Admin", team: "Automation" },
 ];
 
