@@ -17,7 +17,7 @@ export const ROLE_DESCRIPTION: Record<Role, string> = {
 /** Built-in allow-list, used when the MSM Database sheet is not connected. */
 export const ALLOWED_USERS: (Session & { team: string })[] = [
   { name: "Dulmini Dodawatte", email: "dulmini@ekwa.com", role: "Reviewer", team: "Sales" },
-  { name: "Lila Stone", email: "lila@ekwa.com", role: "AE", team: "Sales" },
+  { name: "Lila Stone", email: "lila@ekwa.com", role: "Reviewer", team: "Sales" },
   { name: "Chamika", email: "chamika@ekwa.com", role: "Reviewer", team: "Sales" },
   { name: "Fathima Rushdha", email: "rushdha@ekwa.com", role: "Admin", team: "Automation" },
 ];

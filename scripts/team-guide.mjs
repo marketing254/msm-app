@@ -35,9 +35,9 @@ const html = `<!doctype html><html><head><meta charset="utf-8"><title>MSM Studio
 <h2>2. Signing in</h2>
 <p>Open the app address, type your EKWA email and any 6-digit code (for example 123456). Only people listed on the Users tab of the MSM Database sheet can sign in. To add someone, add a row there with their email and role; it applies within a minute.</p>
 <table><tr><th>Role</th><th>Can</th></tr>
-<tr><td>Reviewer (Dulmini, Chamika)</td><td>Create reports, make the checkpoint decisions, approve</td></tr>
+<tr><td>Reviewer (Dulmini, Chamika, Lila)</td><td>Create reports, make the checkpoint decisions, approve</td></tr>
 <tr><td>Admin (Fathima)</td><td>Everything, plus settings and connections</td></tr></table>
-<p>Others (for example an AE) can be added later on the Users tab.</p>
+<p>Others can be added later on the Users tab.</p>
 
 <h2>3. One-time setup: MSM Rank Helper in your Chrome (about 5 minutes)</h2>
 <ol>
